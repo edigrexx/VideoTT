@@ -1,0 +1,14 @@
+# Официальные источники, сверенные при реализации
+
+Дата: 2026-09-11. UPDATE из PROMT.md исключает все API публикации.
+
+- [Pexels API](https://www.pexels.com/api/documentation/): `GET https://api.pexels.com/v1/videos/search`, параметры `query`, `orientation`, `per_page`, `locale`, заголовок `Authorization: <key>`, ответ `videos[].video_files[]`. Старый `/videos/search` не используется. Поля размера файла не гарантируются, поэтому реальный download ограничивается и по Content-Length, и по числу полученных байтов.
+- [Pexels License](https://www.pexels.com/license/): происхождение, автор, URL и обозначение лицензии сохраняются для каждого клипа. Это не отменяет ограничений на изображения людей/брендов и не выдаёт разрешение на любой контекст.
+- [OpenAI web search](https://developers.openai.com/api/docs/guides/tools-web-search): Responses API, инструмент `web_search`; используются URL citations и `web_search_call.action.sources`. Приложение дополнительно загружает и проверяет источники, а не доверяет придуманным URL.
+- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs): `responses.parse(..., text_format=PydanticModel)`. Все JSON-ответы проходят строгую валидацию; research, script, evaluation разделены. Модель задаётся только ENV.
+- [Edge TTS, официальный репозиторий пакета](https://github.com/rany2/edge-tts) и [реализация Communicate](https://github.com/rany2/edge-tts/blob/master/src/edge_tts/communicate.py): async stream, `boundary="WordBoundary"`, смещения в единицах 100 нс. Если timings не получены, captions распределяются по измеренной длине звука. Это community package, а не Azure Speech API.
+- [n8n: Docker installation](https://docs.n8n.io/deploy/host-n8n/install-options/install-using-docker-compose), [n8n 2.38.6](https://github.com/n8n-io/n8n/releases/tag/n8n%402.38.6): PostgreSQL через `DB_TYPE=postgresdb`, `DB_POSTGRESDB_*`, persistent `/home/node/.n8n`, `GENERIC_TIMEZONE`. Версия image зафиксирована, перед будущим обновлением делайте backup.
+- [Dokploy Compose domains](https://docs.dokploy.com/docs/core/docker-compose/domains): настройка домена через Domains UI; Dokploy добавляет маршрутизацию при deploy, результат виден в Preview Compose.
+- [DejaVu font license](https://dejavu-fonts.github.io/License.html): Docker устанавливает `fonts-dejavu-core`; полный copyright поставляется системным пакетом в `/usr/share/doc/fonts-dejavu-core/copyright`.
+
+URL научно-популярных источников для конкретного ролика не зашиты в код. Они выбираются web search, проверяются на доступность, загружаются с ограничением размера и сохраняются в research_sources. При недостаточных доказательствах — NEEDS_REVIEW. Mock источники `fixture://` существуют только в явно помеченном тестовом режиме.

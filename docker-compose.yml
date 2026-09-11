@@ -1,0 +1,165 @@
+x-worker-environment: &worker-environment
+  POSTGRES_HOST: postgres
+  POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}
+  DATABASE_URL: ${DATABASE_URL:-}
+  WORKER_API_KEY: ${WORKER_API_KEY:?Set WORKER_API_KEY}
+  LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-}
+  PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+  STOCK_PROVIDER: ${STOCK_PROVIDER:-pexels}
+  TTS_PROVIDER: ${TTS_PROVIDER:-edge}
+  TTS_VOICE: ${TTS_VOICE:-en-US-AriaNeural}
+  ALLOW_TEST_MODE: ${ALLOW_TEST_MODE:-false}
+  MEDIA_ROOT: /data/media
+  MAX_ASSET_SIZE_MB: ${MAX_ASSET_SIZE_MB:-120}
+  MAX_VIDEO_DURATION_SEC: ${MAX_VIDEO_DURATION_SEC:-90}
+  MIN_VIDEO_DURATION_SEC: ${MIN_VIDEO_DURATION_SEC:-60}
+  MAX_DOWNLOAD_RETRIES: ${MAX_DOWNLOAD_RETRIES:-3}
+  MAX_JOB_ATTEMPTS: ${MAX_JOB_ATTEMPTS:-3}
+  MAX_QUEUED_JOBS: ${MAX_QUEUED_JOBS:-20}
+  FFMPEG_THREADS: ${FFMPEG_THREADS:-2}
+  FFMPEG_PRESET: ${FFMPEG_PRESET:-veryfast}
+  FFMPEG_TIMEOUT_SEC: ${FFMPEG_TIMEOUT_SEC:-900}
+  HTTP_TIMEOUT_SEC: ${HTTP_TIMEOUT_SEC:-30}
+  LLM_TIMEOUT_SEC: ${LLM_TIMEOUT_SEC:-120}
+  TTS_TIMEOUT_SEC: ${TTS_TIMEOUT_SEC:-180}
+  JOB_TIMEOUT_SEC: ${JOB_TIMEOUT_SEC:-3600}
+  MIN_FACT_CONFIDENCE: ${MIN_FACT_CONFIDENCE:-0.85}
+  POLL_INTERVAL_SEC: ${POLL_INTERVAL_SEC:-3}
+
+x-worker-base: &worker-base
+  build:
+    context: .
+    dockerfile: worker/Dockerfile
+    target: production
+  restart: unless-stopped
+  init: true
+  environment: *worker-environment
+  volumes:
+    - media_data:/data/media
+  networks:
+    - backend
+    - egress
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '3'
+
+services:
+  postgres:
+    image: postgres:16.10-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}
+      POSTGRES_N8N_PASSWORD: ${POSTGRES_N8N_PASSWORD:?Set POSTGRES_N8N_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init-db.sh:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    <<: *worker-base
+    restart: 'no'
+    command: ['alembic', 'upgrade', 'head']
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    <<: *worker-base
+    ports:
+      - '127.0.0.1:${WORKER_LOCAL_PORT:-8000}:8000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
+
+  runner:
+    <<: *worker-base
+    command: ['python', '-m', 'app.runner']
+    stop_grace_period: 30s
+    mem_limit: 4g
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import pathlib,time; p=pathlib.Path('/data/media/runner.heartbeat'); assert p.exists() and time.time()-float(p.read_text())<30"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_VERSION:-2.38.6}
+    restart: unless-stopped
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_N8N_PASSWORD:?Set POSTGRES_N8N_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY}
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${N8N_PUBLIC_URL:-http://localhost:5678/}
+      N8N_EDITOR_BASE_URL: ${N8N_PUBLIC_URL:-http://localhost:5678/}
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+      N8N_PROXY_HOPS: ${N8N_PROXY_HOPS:-1}
+      GENERIC_TIMEZONE: ${TIMEZONE:-Asia/Almaty}
+      TZ: ${TIMEZONE:-Asia/Almaty}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: 'true'
+      N8N_DIAGNOSTICS_ENABLED: 'false'
+      EXECUTIONS_DATA_PRUNE: 'true'
+      EXECUTIONS_DATA_MAX_AGE: 168
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'true'
+    ports:
+      - '127.0.0.1:${N8N_LOCAL_PORT:-5678}:5678'
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - backend
+      - egress
+    depends_on:
+      postgres:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 8s
+      retries: 8
+      start_period: 60s
+
+volumes:
+  postgres_data:
+  media_data:
+  n8n_data:
+
+networks:
+  backend:
+    internal: true
+  egress:

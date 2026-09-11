@@ -1,0 +1,20 @@
+name: Test VideoTT
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Compose configuration
+        run: docker compose -f docker-compose.test.yml config --quiet
+      - name: Unit, PostgreSQL integration and real FFmpeg smoke
+        run: docker compose -f docker-compose.test.yml run --build --rm tests
+      - name: Stop disposable test database
+        if: always()
+        run: docker compose -f docker-compose.test.yml down --volumes

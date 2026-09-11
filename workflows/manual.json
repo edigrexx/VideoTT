@@ -1,0 +1,346 @@
+{
+  "name": "VideoTT — Manual creation",
+  "active": false,
+  "nodes": [
+    {
+      "id": "9ea6a576-5512-4d7f-9e66-0e76cba3dc6c",
+      "name": "Manual test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "04246e87-611c-4c6f-888d-268d730adb02",
+      "name": "Choose topic",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        200,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1c656a55-6e86-4c63-87cc-7c3bb7dafa07",
+              "name": "topic",
+              "value": "Why do the F and J keys on keyboards have raised bumps?",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e73eb9a4-dd4a-49a0-907f-2e588c4bb64d",
+      "name": "Create video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "method": "POST",
+        "url": "http://worker:8000/api/v1/videos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ 'n8n-' + $workflow.id + '-' + $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({topic: $json.topic}) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SELECT_YOUR_CREDENTIAL",
+          "name": "VideoTT API"
+        }
+      }
+    },
+    {
+      "id": "f986d676-24c7-43b9-8dba-5ce629517444",
+      "name": "Wait 30 seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        0
+      ],
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "webhookId": "4c6e0674-5ccb-4bbe-9687-ffd453473adf"
+    },
+    {
+      "id": "3ddf34ce-7b7f-403c-90c9-6a413b34cd36",
+      "name": "Check job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "url": "={{ 'http://worker:8000/api/v1/jobs/' + $('Create video').first().json.job_id }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SELECT_YOUR_CREDENTIAL",
+          "name": "VideoTT API"
+        }
+      }
+    },
+    {
+      "id": "98322f68-b4b3-433a-8db6-fc8bd4835510",
+      "name": "Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1080,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2e1cb529-81c2-4d2d-8902-4469817d4509",
+              "leftValue": "={{ $json.status === 'READY' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "50ced33b-f3c1-43b8-bc2f-9318f249a38b",
+      "name": "Record completed video",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1340,
+        -140
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "eb3ad454-e926-4e06-b827-37247a71b44d",
+              "name": "video_id",
+              "value": "={{ $json.video_id }}",
+              "type": "string"
+            },
+            {
+              "id": "f22ad842-3a89-46e5-9412-24f4bf862d51",
+              "name": "status",
+              "value": "READY",
+              "type": "string"
+            },
+            {
+              "id": "19cef2fc-efbd-4c05-8c6e-aa20c1f145a7",
+              "name": "download_path",
+              "value": "={{ '/api/v1/videos/' + $json.video_id + '/download' }}",
+              "type": "string"
+            },
+            {
+              "id": "44202d62-a5b7-48ba-8c3b-38e84268eacd",
+              "name": "next_step",
+              "value": "Download, review the video and caption, then publish manually.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b4932743-dc22-46cf-939f-eefc922dee9b",
+      "name": "Still processing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1340,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9e8ce7d1-98a9-4559-a3e8-ea6619f45010",
+              "leftValue": "={{ ['QUEUED','RESEARCHING','SCRIPTING','FETCHING_ASSETS','GENERATING_TTS','RENDERING','VALIDATING'].includes($json.status) && (Date.now() - Date.parse($json.created_at) < 7200000) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c3cd6739-e63f-41e8-bd84-04836b21b0fd",
+      "name": "Needs attention",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1580,
+        140
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'Video job stopped or exceeded 2 hours: ' + $json.status + ' / ' + ($json.error_code || 'check runner') + ' / video ' + $json.video_id }}"
+      }
+    }
+  ],
+  "connections": {
+    "Manual test": {
+      "main": [
+        [
+          {
+            "node": "Choose topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create video": {
+      "main": [
+        [
+          {
+            "node": "Wait 30 seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30 seconds": {
+      "main": [
+        [
+          {
+            "node": "Check job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check job": {
+      "main": [
+        [
+          {
+            "node": "Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ready?": {
+      "main": [
+        [
+          {
+            "node": "Record completed video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Still processing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still processing?": {
+      "main": [
+        [
+          {
+            "node": "Wait 30 seconds",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs attention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose topic": {
+      "main": [
+        [
+          {
+            "node": "Create video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Almaty",
+    "executionTimeout": 7200,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "tags": []
+}

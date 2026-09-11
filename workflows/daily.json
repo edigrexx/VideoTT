@@ -1,0 +1,321 @@
+{
+  "name": "VideoTT — Daily creation",
+  "active": false,
+  "nodes": [
+    {
+      "id": "fd1edc2d-57d9-4b10-9f24-f10e96553c04",
+      "name": "Daily schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "dba0f833-3d96-4b17-96ab-3e3384d045b9",
+      "name": "Create video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "method": "POST",
+        "url": "http://worker:8000/api/v1/videos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ 'n8n-' + $workflow.id + '-' + $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SELECT_YOUR_CREDENTIAL",
+          "name": "VideoTT API"
+        }
+      }
+    },
+    {
+      "id": "343cb828-615e-4f48-8353-18556a9d148b",
+      "name": "Wait 30 seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        0
+      ],
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "webhookId": "6bbd764c-1c93-4094-ad9f-e2162bf8a53c"
+    },
+    {
+      "id": "f6df59b6-cdbf-413c-8dac-67286947c94f",
+      "name": "Check job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "url": "={{ 'http://worker:8000/api/v1/jobs/' + $('Create video').first().json.job_id }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SELECT_YOUR_CREDENTIAL",
+          "name": "VideoTT API"
+        }
+      }
+    },
+    {
+      "id": "0d893106-8034-4815-b429-f2f473a9f8a5",
+      "name": "Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1080,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "531024b7-26c2-4276-8318-33277d7ed872",
+              "leftValue": "={{ $json.status === 'READY' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "71a2b208-98b1-4230-a2ec-32d80e2201da",
+      "name": "Record completed video",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1340,
+        -140
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9a396224-2a28-4c61-b385-390074c88dc0",
+              "name": "video_id",
+              "value": "={{ $json.video_id }}",
+              "type": "string"
+            },
+            {
+              "id": "2e14545e-9c88-4999-86d3-68e500fb4ff0",
+              "name": "status",
+              "value": "READY",
+              "type": "string"
+            },
+            {
+              "id": "7c2ca1ff-38b8-432a-b139-4a752ca2e5a1",
+              "name": "download_path",
+              "value": "={{ '/api/v1/videos/' + $json.video_id + '/download' }}",
+              "type": "string"
+            },
+            {
+              "id": "19920ece-bbd5-4e66-a1b1-76c3b6e2b2ed",
+              "name": "next_step",
+              "value": "Download, review the video and caption, then publish manually.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0df05583-b7e9-4f26-82a8-ccc1d338a084",
+      "name": "Still processing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1340,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d77ed141-c53c-44c4-912c-5ba007417c6b",
+              "leftValue": "={{ ['QUEUED','RESEARCHING','SCRIPTING','FETCHING_ASSETS','GENERATING_TTS','RENDERING','VALIDATING'].includes($json.status) && (Date.now() - Date.parse($json.created_at) < 7200000) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "aab5e5be-fd0b-435c-a1b3-009ee10fe58f",
+      "name": "Needs attention",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1580,
+        140
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'Video job stopped or exceeded 2 hours: ' + $json.status + ' / ' + ($json.error_code || 'check runner') + ' / video ' + $json.video_id }}"
+      }
+    }
+  ],
+  "connections": {
+    "Daily schedule": {
+      "main": [
+        [
+          {
+            "node": "Create video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create video": {
+      "main": [
+        [
+          {
+            "node": "Wait 30 seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30 seconds": {
+      "main": [
+        [
+          {
+            "node": "Check job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check job": {
+      "main": [
+        [
+          {
+            "node": "Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ready?": {
+      "main": [
+        [
+          {
+            "node": "Record completed video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Still processing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still processing?": {
+      "main": [
+        [
+          {
+            "node": "Wait 30 seconds",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs attention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Almaty",
+    "executionTimeout": 7200,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "tags": []
+}

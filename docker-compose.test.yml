@@ -1,0 +1,26 @@
+services:
+  postgres-test:
+    image: postgres:16.10-bookworm
+    environment:
+      POSTGRES_PASSWORD: test-only-not-a-production-secret
+      POSTGRES_DB: videott_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d videott_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  tests:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:test-only-not-a-production-secret@postgres-test/videott_test
+      WORKER_API_KEY: test-only-api-key-32-characters-long
+      DATABASE_URL: sqlite://
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    command: ['sh', '-c', 'ruff check app tests migrations && pytest -q && python scripts/smoke_test.py']
