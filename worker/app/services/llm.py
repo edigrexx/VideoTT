@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.errors import NeedsReview, PipelineError
 from app.schemas import Evaluation, ResearchResult, Script
 from app.services.research import retrieve_sources
+from app.services.validation import validation_detail
 
 
 class LLMProvider(Protocol):
@@ -50,9 +51,7 @@ class OpenAIProvider:
                 raise NeedsReview("LLM_REFUSAL", "Model did not return valid structured content")
             return schema.model_validate(response.output_parsed)
         except ValidationError as exc:
-            raise NeedsReview(
-                "LLM_SCHEMA", "Model output failed schema or script consistency checks"
-            ) from exc
+            raise NeedsReview("LLM_SCHEMA", validation_detail(schema, exc)) from None
 
     async def discover_sources(self, topic):
         result = await self.client.responses.create(

@@ -247,6 +247,59 @@ async def test_script_semantic_validation_is_preserved(sample):
         with pytest.raises(NeedsReview) as exc:
             await provider.structured(Script, "Write", {})
         assert exc.value.code == "LLM_SCHEMA"
+        assert "Script: $: Narration must equal concatenated scene narration" in str(exc.value)
+        assert "after one repair attempt" in str(exc.value)
+        assert len(provider.usage_records) == 2
+    finally:
+        await provider.close()
+
+
+async def test_invalid_script_repaired_once_without_search_and_both_costs_recorded(sample):
+    research, _, script = sample
+    invalid = script.model_dump()
+    invalid["narration"] = "Inconsistent draft"
+    seen = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        seen.append(body)
+        result = invalid if len(seen) == 1 else script.model_dump()
+        return httpx.Response(200, json=completion(json.dumps(result)))
+
+    provider = await provider_for(handler)
+    try:
+        result = await provider.structured(Script, "Write from supplied research only", research.model_dump())
+        assert result == script
+        assert len(seen) == 2
+        assert all("tools" not in body and "max_tool_calls" not in body for body in seen)
+        assert seen[1]["messages"][:2] == seen[0]["messages"]
+        assert json.loads(seen[1]["messages"][2]["content"]) == invalid
+        assert "Narration must equal concatenated scene narration" in seen[1]["messages"][3]["content"]
+        assert "maxLength" in seen[0]["messages"][0]["content"]
+        assert "maxLength" not in json.dumps(seen[0]["response_format"])
+        assert [record["stage"] for record in provider.usage_records] == ["Script", "Script_repair"]
+        assert provider.usage_summary()["reported_cost_usd"] == pytest.approx(0.024)
+    finally:
+        await provider.close()
+
+
+@pytest.mark.parametrize("failure", ["http", "refusal", "incomplete"])
+async def test_script_provider_failures_do_not_trigger_repair(failure):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        if failure == "http":
+            return httpx.Response(400, json={"error": {"message": "Invalid parameter"}})
+        data = completion("Draft")
+        data["choices"][0]["finish_reason"] = "content_filter" if failure == "refusal" else "length"
+        return httpx.Response(200, json=data)
+
+    provider = await provider_for(handler)
+    try:
+        with pytest.raises(PipelineError):
+            await provider.structured(Script, "Write", {})
+        assert len(seen) == 1
     finally:
         await provider.close()
 
