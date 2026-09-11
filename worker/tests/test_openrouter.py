@@ -71,6 +71,8 @@ async def test_openrouter_structured_and_usage(tmp_path):
         assert await provider.structured(Evaluation, "Check facts", {"text": "untrusted text"}) == output
         body = seen[0]
         assert body["provider"]["require_parameters"]
+        assert "in Russian" in body["messages"][0]["content"]
+        assert "ORIGINAL source language" in body["messages"][0]["content"]
         assert body["response_format"]["json_schema"]["strict"]
         assert body["max_tokens"] == 8192 and body["reasoning"]["max_tokens"] == 1024
         assert "tools" not in body  # Search is billed only in source discovery.

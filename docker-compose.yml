@@ -12,7 +12,8 @@ x-worker-environment: &worker-environment
   PEXELS_API_KEY: ${PEXELS_API_KEY:-}
   STOCK_PROVIDER: ${STOCK_PROVIDER:-pexels}
   TTS_PROVIDER: ${TTS_PROVIDER:-edge}
-  TTS_VOICE: ${TTS_VOICE:-en-US-AriaNeural}
+  CONTENT_LANGUAGE: ${CONTENT_LANGUAGE:-ru-RU}
+  TTS_VOICE: ${TTS_VOICE:-ru-RU-SvetlanaNeural}
   ALLOW_TEST_MODE: ${ALLOW_TEST_MODE:-false}
   MEDIA_ROOT: /data/media
   MAX_ASSET_SIZE_MB: ${MAX_ASSET_SIZE_MB:-120}

@@ -19,7 +19,8 @@ LLM_API_KEY=ваш_ключ_OpenRouter
 PEXELS_API_KEY=ваш_ключ_Pexels
 STOCK_PROVIDER=pexels
 TTS_PROVIDER=edge
-TTS_VOICE=en-US-AriaNeural
+CONTENT_LANGUAGE=ru-RU
+TTS_VOICE=ru-RU-SvetlanaNeural
 ALLOW_TEST_MODE=false
 OPENROUTER_MAX_TOKENS=8192
 OPENROUTER_REASONING_TOKENS=1024
@@ -27,6 +28,8 @@ OPENROUTER_MAX_SEARCHES=2
 ```
 
 Ключи сохраняются только в Environment или локальном `.env`. Не вставляйте их в команды терминала, GitHub и сообщения.
+
+Сценарий, озвучка, субтитры и описание создаются на русском. Голос по умолчанию женский; для мужского задайте `TTS_VOICE=ru-RU-DmitryNeural`. При обновлении замените старый английский голос и добавьте `CONTENT_LANGUAGE=ru-RU`, затем повторите Deploy. Поиск Pexels остаётся на английском, а цитаты доказательств сохраняют исходный язык. Уже созданные ролики не переводятся; создайте новое задание.
 
 ## 2. Разверните приложение
 
@@ -105,6 +108,7 @@ ssh -N -L 8000:127.0.0.1:8000 your-user@SERVER_IP
 | `OPENROUTER_HTTP` / `OPENROUTER_UPSTREAM` | Проверить модель, статус OpenRouter и Activity |
 | `LLM_INCOMPLETE` | Проверить лимит ответа; при необходимости увеличить MAX_TOKENS, учитывая цену |
 | `LLM_SCHEMA` | Модель вернула несовместимый JSON/сценарий; проверить результат и повторить вручную |
+| `LLM_LANGUAGE` | Модель вернула нерусский сценарий; повторить генерацию |
 | `INSUFFICIENT_SOURCES` / `FACT_CHECK_FAILED` | Проверить тему и доказательства; можно попробовать другую тему |
 
 Приложение не повторяет платный OpenRouter POST автоматически при сетевой ошибке или HTTP-ошибке. Перезапуск runner во время работы и ручной повтор задания могут запустить исследование заново. Ограничение расходов задайте на ключе OpenRouter.

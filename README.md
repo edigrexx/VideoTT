@@ -1,6 +1,8 @@
 # VideoTT
 
-Тема → проверяемые источники → оригинальный английский сценарий → Pexels → озвучка → субтитры → готовый вертикальный MP4.
+Тема → проверяемые источники → оригинальный русский сценарий → Pexels → русская озвучка → субтитры → готовый вертикальный MP4.
+
+По уточнению пользователя язык изменён на русский (исходный `PROMT.md` описывал англоязычную аудиторию). При обновлении существующего развёртывания задайте **обе** переменные: `CONTENT_LANGUAGE=ru-RU` и `TTS_VOICE=ru-RU-SvetlanaNeural`, затем Deploy. Для английского режима нужны `CONTENT_LANGUAGE=en-US` и `TTS_VOICE=en-US-AriaNeural`.
 
 **Начать с OpenRouter:** [пошаговая проверка в Dokploy](docs/OPENROUTER.md). По умолчанию в `.env.example` выбран `google/gemini-2.5-flash`; OpenAI также поддерживается.
 
@@ -30,7 +32,7 @@ Videos provided by [Pexels](https://www.pexels.com). Авторы каждого
 1. Зарегистрируйтесь на [Pexels API](https://www.pexels.com/api/), создайте API key для своего проекта. Запишите его в `PEXELS_API_KEY`.
 2. Откройте [OpenRouter Keys](https://openrouter.ai/settings/keys), создайте отдельный ключ VideoTT. Для первых тестов задайте лимит ключа $1. Запишите ключ в `LLM_API_KEY`; баланс используется из вашего аккаунта OpenRouter.
 3. Оставьте `LLM_PROVIDER=openrouter`, `LLM_MODEL=google/gemini-2.5-flash`. Исследование использует платный поиск Exa через OpenRouter и три последующих запроса к модели. Настройки и учёт расхода — в [инструкции OpenRouter](docs/OPENROUTER.md). Для прямого OpenAI выберите `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5.6-luna` и ключ [OpenAI API](https://platform.openai.com/api-keys) с отдельным billing. Модель OpenAI должна поддерживать Responses API, web search и Structured Outputs. Подписка ChatGPT не оплачивает API.
-4. Edge TTS отдельного ключа не требует. По умолчанию используется `en-US-AriaNeural`.
+4. Edge TTS отдельного ключа не требует. По умолчанию используется русский женский голос `ru-RU-SvetlanaNeural`. Русский мужской — `ru-RU-DmitryNeural`. Язык голоса должен совпадать с `CONTENT_LANGUAGE`.
 
 ## Быстрая проверка без ключей
 
@@ -124,6 +126,8 @@ N8N_PROXY_HOPS=1
 | `LLM_PROVIDER` | `openrouter` (либо `openai` для прямого OpenAI) |
 | `LLM_API_KEY` | Ключ выбранного провайдера; для OpenRouter — из Settings → Keys |
 | `LLM_MODEL` | Для OpenRouter: `google/gemini-2.5-flash` |
+| `CONTENT_LANGUAGE` | `ru-RU`: сценарий, описание и озвучка на русском |
+| `TTS_VOICE` | `ru-RU-SvetlanaNeural` (женский) или `ru-RU-DmitryNeural` (мужской) |
 | `OPENROUTER_MAX_TOKENS` | `8192`: предел выходных токенов запроса, включая рассуждения |
 | `OPENROUTER_REASONING_TOKENS` | `1024`: бюджет рассуждений; должен быть меньше MAX_TOKENS |
 | `OPENROUTER_MAX_SEARCHES` | `2`: максимум поисков на попытку исследования |

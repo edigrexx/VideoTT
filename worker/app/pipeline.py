@@ -115,6 +115,7 @@ async def process_job(job_id, settings, session_factory):
                 duration,
                 settings.is_test,
                 llm_usage=llm.usage_summary() if hasattr(llm, "usage_summary") else None,
+                language="en-US" if settings.is_test else settings.content_language,
             )
             output = settings.media_root / "output" / str(video_id)
             output.parent.mkdir(parents=True, exist_ok=True)

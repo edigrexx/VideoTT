@@ -8,7 +8,7 @@ from sqlalchemy import URL
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     database_url: SecretStr | None = None
     postgres_host: str = "postgres"
@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     openrouter_reasoning_tokens: int = Field(1024, ge=0, le=8192)
     pexels_api_key: SecretStr = SecretStr("")
     tts_provider: Literal["edge", "mock"] = "edge"
-    tts_voice: str = "en-US-AriaNeural"
+    content_language: Literal["ru-RU", "en-US"] = "ru-RU"
+    tts_voice: str = "ru-RU-SvetlanaNeural"
     stock_provider: Literal["pexels", "mock"] = "pexels"
     allow_test_mode: bool = False
     media_root: Path = Path("/data/media")
@@ -46,6 +47,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def check_config(self):
+        if self.tts_provider == "edge" and not self.tts_voice.startswith(self.content_language + "-"):
+            raise ValueError("TTS_VOICE locale must match CONTENT_LANGUAGE (ru-RU or en-US)")
         if self.openrouter_reasoning_tokens >= self.openrouter_max_tokens:
             raise ValueError("OpenRouter reasoning budget must be smaller than the total output budget")
         if self.min_video_duration_sec > self.max_video_duration_sec:
@@ -65,6 +68,16 @@ class Settings(BaseSettings):
     @property
     def is_test(self):
         return "mock" in (self.llm_provider, self.tts_provider, self.stock_provider)
+
+    @property
+    def language_instruction(self):
+        language = "Russian" if self.content_language == "ru-RU" else "English"
+        return (
+            f"Write audience-facing text and explanations in {language}. "
+            "Keep JSON field names, IDs, URLs and proper names unchanged. "
+            "Keep the input topic verbatim and evidence_quotes in their ORIGINAL source language; "
+            "never translate evidence quotes. Write visual_query in English for Pexels search."
+        )
 
     @property
     def db_url(self):

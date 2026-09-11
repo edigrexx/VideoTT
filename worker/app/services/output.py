@@ -43,7 +43,18 @@ def rights_manifest(video_id, assets, is_test=False):
     }
 
 
-def write_output(directory, video_id, topic, script, sources, assets, duration, is_test=False, llm_usage=None):
+def write_output(
+    directory,
+    video_id,
+    topic,
+    script,
+    sources,
+    assets,
+    duration,
+    is_test=False,
+    llm_usage=None,
+    language="en-US",
+):
     manifest = rights_manifest(video_id, assets, is_test)
     metadata = {
         "video_id": str(video_id),
@@ -52,7 +63,7 @@ def write_output(directory, video_id, topic, script, sources, assets, duration, 
         "hook": script.hook,
         "payoff": script.payoff,
         "duration": duration,
-        "language": "en-US",
+        "language": language,
         "status": "READY",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "is_test": is_test,

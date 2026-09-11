@@ -58,6 +58,7 @@ async def test_openai_structured_request_and_parsing():
         assert seen[0]["text"]["format"]["type"] == "json_schema"
         assert seen[0]["text"]["format"]["strict"] is True
         assert seen[0]["store"] is False
+        assert "in Russian" in seen[0]["input"][0]["content"]
     finally:
         await provider.close()
 

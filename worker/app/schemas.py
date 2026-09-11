@@ -72,7 +72,7 @@ class Script(StrictModel):
     estimated_duration: float = Field(ge=60, le=90)
     scenes: list[ScenePlan] = Field(min_length=8, max_length=16)
     caption: Annotated[str, Field(min_length=1, max_length=1500)]
-    hashtags: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9_]{1,40}$")]] = Field(min_length=3, max_length=6)
+    hashtags: list[Annotated[str, Field(pattern=r"^[A-Za-zА-Яа-яЁё0-9_]{1,40}$")]] = Field(min_length=3, max_length=6)
 
     @model_validator(mode="after")
     def consistency(self):
