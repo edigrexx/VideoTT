@@ -10,10 +10,9 @@ from app.errors import LostOwnership, NeedsReview, PipelineError
 from app.logging import event
 from app.queue import set_stage
 from app.schemas import TERMINAL, Status
-from app.services.llm import OpenAIProvider
 from app.services.media import probe, validate_render
-from app.services.mock import MockLLMProvider
 from app.services.output import write_output
+from app.services.providers import create_llm_provider
 from app.services.renderer import render
 from app.services.research import validate_fact_evidence, validate_script_evidence
 from app.services.stock import MockStockProvider, PexelsProvider
@@ -53,7 +52,7 @@ async def process_job(job_id, settings, session_factory):
                     "PROVIDER_MODE_CHANGED", "Provider mode changed after enqueue; retry in the original mode"
                 )
             event("RESEARCHING", job_id, video_id, attempt=attempt)
-            llm = MockLLMProvider() if settings.is_test else OpenAIProvider(settings)
+            llm = create_llm_provider(settings, work / "llm_usage.jsonl")
             stock = MockStockProvider(settings) if settings.is_test else PexelsProvider(settings)
             tts = MockTTSProvider(settings) if settings.is_test else EdgeTTSProvider(settings)
             research, sources = await llm.research_topic(topic)
@@ -106,7 +105,17 @@ async def process_job(job_id, settings, session_factory):
             await render(clips, durations, audio, subtitles, staging / "final.mp4", work / "temp", settings)
             stage(Status.VALIDATING)
             duration = validate_render(await probe(staging / "final.mp4", settings), settings)
-            write_output(staging, video_id, topic, script, sources, assets, duration, settings.is_test)
+            write_output(
+                staging,
+                video_id,
+                topic,
+                script,
+                sources,
+                assets,
+                duration,
+                settings.is_test,
+                llm_usage=llm.usage_summary() if hasattr(llm, "usage_summary") else None,
+            )
             output = settings.media_root / "output" / str(video_id)
             output.parent.mkdir(parents=True, exist_ok=True)
             # Directory rename is atomic on media_data. API serves it only after READY commits.

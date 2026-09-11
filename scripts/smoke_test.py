@@ -52,7 +52,7 @@ async def main():
     manifest = json.loads((directory / 'rights_manifest.json').read_text())
     assert len(manifest['assets']) == 9 and manifest['is_test']
     print(f'SMOKE PASS: 1080x1920, 30 fps, H.264/AAC, {duration:.2f}s, 9 scenes, animated ASS subtitles')
-    print('SYNTHETIC FIXTURE with test tone; does not test live OpenAI/Pexels/Edge services.')
+    print('SYNTHETIC FIXTURE with test tone; does not test live OpenRouter/OpenAI/Pexels/Edge services.')
     print(directory)
 
 

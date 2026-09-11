@@ -43,7 +43,7 @@ def rights_manifest(video_id, assets, is_test=False):
     }
 
 
-def write_output(directory, video_id, topic, script, sources, assets, duration, is_test=False):
+def write_output(directory, video_id, topic, script, sources, assets, duration, is_test=False, llm_usage=None):
     manifest = rights_manifest(video_id, assets, is_test)
     metadata = {
         "video_id": str(video_id),
@@ -59,6 +59,8 @@ def write_output(directory, video_id, topic, script, sources, assets, duration, 
         "sources": [{k: s[k] for k in ("title", "url", "publisher", "retrieved_at")} for s in sources],
         "attribution": manifest["attribution"],
     }
+    if llm_usage is not None:
+        metadata["llm_usage"] = llm_usage
     for filename, payload in (("metadata.json", metadata), ("rights_manifest.json", manifest)):
         (directory / filename).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     (directory / "caption.txt").write_text(

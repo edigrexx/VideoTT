@@ -14,9 +14,12 @@ class Settings(BaseSettings):
     postgres_host: str = "postgres"
     postgres_app_password: SecretStr = SecretStr("")
     worker_api_key: SecretStr = SecretStr("")
-    llm_provider: Literal["openai", "mock"] = "openai"
+    llm_provider: Literal["openai", "openrouter", "mock"] = "openai"
     llm_api_key: SecretStr = SecretStr("")
     llm_model: str = ""
+    openrouter_max_tokens: int = Field(8192, ge=1024, le=32768)
+    openrouter_max_searches: int = Field(2, ge=1, le=4)
+    openrouter_reasoning_tokens: int = Field(1024, ge=0, le=8192)
     pexels_api_key: SecretStr = SecretStr("")
     tts_provider: Literal["edge", "mock"] = "edge"
     tts_voice: str = "en-US-AriaNeural"
@@ -43,6 +46,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def check_config(self):
+        if self.openrouter_reasoning_tokens >= self.openrouter_max_tokens:
+            raise ValueError("OpenRouter reasoning budget must be smaller than the total output budget")
         if self.min_video_duration_sec > self.max_video_duration_sec:
             raise ValueError("Minimum duration exceeds maximum")
         if self.ffmpeg_preset not in {"ultrafast", "superfast", "veryfast", "faster", "fast", "medium"}:

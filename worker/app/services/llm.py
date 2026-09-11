@@ -52,7 +52,7 @@ class OpenAIProvider:
                 "LLM_SCHEMA", "Model output failed schema or script consistency checks"
             ) from exc
 
-    async def research_topic(self, topic):
+    async def discover_sources(self, topic):
         result = await self.client.responses.create(
             model=self.settings.llm_model,
             store=False,
@@ -80,7 +80,10 @@ class OpenAIProvider:
                 for source in (item.get("action") or {}).get("sources", []):
                     if source.get("url"):
                         candidates.append({"url": source["url"], "title": source.get("title", "")})
-        sources = await retrieve_sources(candidates, self.settings)
+        return candidates
+
+    async def research_topic(self, topic):
+        sources = await retrieve_sources(await self.discover_sources(topic), self.settings)
         research = await self.structured(
             ResearchResult,
             "Extract only facts supported by the provided source excerpts. Never invent facts, dates, inventors or source URLs. "

@@ -23,7 +23,7 @@ jobs:
           docker compose up -d --build --wait --wait-timeout 240
       - name: Verify persistent job through production HTTP API
         run: docker compose exec -T worker python scripts/client.py create --wait
-      - name: Verify n8n workflow import
+      - name: Validate n8n workflow JSON inside container
         run: |
           docker compose cp workflows/manual.json n8n:/tmp/manual.json
           docker compose cp workflows/daily.json n8n:/tmp/daily.json

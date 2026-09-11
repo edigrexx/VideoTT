@@ -2,6 +2,8 @@
 
 Тема → проверяемые источники → оригинальный английский сценарий → Pexels → озвучка → субтитры → готовый вертикальный MP4.
 
+**Начать с OpenRouter:** [пошаговая проверка в Dokploy](docs/OPENROUTER.md). По умолчанию в `.env.example` выбран `google/gemini-2.5-flash`; OpenAI также поддерживается.
+
 **Публикуете вы сами.** TikTok API, OAuth, автозагрузка, музыка и скачивание чужих роликов не реализованы — согласно последнему UPDATE в `PROMT.md`. TikTok Developer credentials не нужны.
 
 Для каждого успешного задания:
@@ -20,14 +22,14 @@ Videos provided by [Pexels](https://www.pexels.com). Авторы каждого
 
 - Ваш Linux-сервер с Dokploy и Docker Compose v2. Один проект — один последовательный обработчик. GPU не нужен.
 - Практический начальный размер сервера: 4 CPU, 8 GB RAM, 40+ GB свободного диска. Это ориентир для этого конвейера, скорость зависит от CPU и клипов. FFmpeg ограничен двумя потоками по умолчанию.
-- Исходящий интернет: OpenAI, Pexels/CDN, публичные страницы источников, сервис озвучки Microsoft.
-- **Pexels API key**, **OpenAI API key**, **название модели OpenAI** с поддержкой Responses API, `web_search` и Structured Outputs. Подписка ChatGPT сама по себе не заполняет API-ключ этого приложения.
+- Исходящий интернет: OpenRouter (либо OpenAI), Pexels/CDN, публичные страницы источников, сервис озвучки Microsoft.
+- **Pexels API key** и **OpenRouter API key** с балансом. Отдельный ключ OpenAI при использовании OpenRouter не нужен.
 
 ### Получить внешние ключи
 
 1. Зарегистрируйтесь на [Pexels API](https://www.pexels.com/api/), создайте API key для своего проекта. Запишите его в `PEXELS_API_KEY`.
-2. Откройте [OpenAI API keys](https://platform.openai.com/api-keys), создайте серверный ключ проекта и настройте API billing/лимит расходов. Запишите ключ в `LLM_API_KEY`.
-3. В примере уже стоит `LLM_MODEL=gpt-5.6-luna`: [документация модели](https://developers.openai.com/api/docs/models/gpt-5.6-luna) подтверждает web search и Structured Outputs. Проверьте доступность **вашему API-проекту** или укажите другую модель с этими возможностями. Названия моделей в Python-коде не зашиты. Проверяйте доступность в [каталоге моделей](https://developers.openai.com/api/docs/models). Исследование использует платный веб-поиск и несколько запросов к модели.
+2. Откройте [OpenRouter Keys](https://openrouter.ai/settings/keys), создайте отдельный ключ VideoTT. Для первых тестов задайте лимит ключа $1. Запишите ключ в `LLM_API_KEY`; баланс используется из вашего аккаунта OpenRouter.
+3. Оставьте `LLM_PROVIDER=openrouter`, `LLM_MODEL=google/gemini-2.5-flash`. Исследование использует платный поиск Exa через OpenRouter и три последующих запроса к модели. Настройки и учёт расхода — в [инструкции OpenRouter](docs/OPENROUTER.md). Для прямого OpenAI выберите `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5.6-luna` и ключ [OpenAI API](https://platform.openai.com/api-keys) с отдельным billing. Модель OpenAI должна поддерживать Responses API, web search и Structured Outputs. Подписка ChatGPT не оплачивает API.
 4. Edge TTS отдельного ключа не требует. По умолчанию используется `en-US-AriaNeural`.
 
 ## Быстрая проверка без ключей
@@ -50,7 +52,8 @@ make list
 Для перехода к настоящим видео заполните внешние ключи и измените:
 
 ```dotenv
-LLM_PROVIDER=openai
+LLM_PROVIDER=openrouter
+LLM_MODEL=google/gemini-2.5-flash
 STOCK_PROVIDER=pexels
 TTS_PROVIDER=edge
 ALLOW_TEST_MODE=false
@@ -60,7 +63,7 @@ ALLOW_TEST_MODE=false
 
 ## Настройка в Dokploy — пошагово
 
-1. **Подготовьте переменные на своём компьютере.** В папке проекта выполните `python3 scripts/setup_env.py`. Откройте полученный `.env`, заполните `PEXELS_API_KEY`, `LLM_API_KEY`, `LLM_MODEL`. Секреты не отправляйте в GitHub.
+1. **Подготовьте переменные на своём компьютере.** Если `.env` ещё нет, выполните `python3 scripts/setup_env.py`. Если он уже существует, откройте его: скрипт не перезаписывает файл. Заполните `PEXELS_API_KEY`, `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`. Для OpenRouter используйте блок из [инструкции](docs/OPENROUTER.md). Секреты не отправляйте в GitHub.
 2. **В Dokploy создайте Project**, например `VideoTT`, затем сервис **Docker Compose**. Выбирайте обычный Compose, не Stack/Swarm.
 3. **Подключите Git**: репозиторий `https://github.com/edigrexx/VideoTT.git`, ветка `main`, путь к Compose `./docker-compose.yml`. Для приватного репозитория подключите GitHub App/доступ к репозиторию в Dokploy.
 4. **Environment**: вставьте содержимое вашего `.env`. Обязательные значения перечислены ниже. `DATABASE_URL` оставьте пустым: приложение само подключится к своему PostgreSQL.
@@ -118,8 +121,12 @@ N8N_PROXY_HOPS=1
 | `WORKER_API_KEY` | Ключ входа в API, минимум 32 символа; генерируется |
 | `N8N_ENCRYPTION_KEY` | Постоянный ключ шифрования n8n; генерируется, сохраните резервную копию |
 | `PEXELS_API_KEY` | Ваш ключ Pexels |
-| `LLM_API_KEY` | Ваш ключ OpenAI API |
-| `LLM_MODEL` | По умолчанию gpt-5.6-luna; проверьте доступ API-проекта |
+| `LLM_PROVIDER` | `openrouter` (либо `openai` для прямого OpenAI) |
+| `LLM_API_KEY` | Ключ выбранного провайдера; для OpenRouter — из Settings → Keys |
+| `LLM_MODEL` | Для OpenRouter: `google/gemini-2.5-flash` |
+| `OPENROUTER_MAX_TOKENS` | `8192`: предел выходных токенов запроса, включая рассуждения |
+| `OPENROUTER_REASONING_TOKENS` | `1024`: бюджет рассуждений; должен быть меньше MAX_TOKENS |
+| `OPENROUTER_MAX_SEARCHES` | `2`: максимум поисков на попытку исследования |
 | `N8N_HOST`, `N8N_PROTOCOL`, `N8N_PUBLIC_URL`, `N8N_SECURE_COOKIE` | Менять только при настройке домена |
 
 Остальные параметры имеют значения в `.env.example`. `TIMEZONE=Asia/Almaty`; `TTS_VOICE` меняет голос. `MAX_ASSET_SIZE_MB=120` ограничивает **один** скачиваемый клип; `MAX_VIDEO_DURATION_SEC=90` — длительность результата; `MAX_DOWNLOAD_RETRIES=3` — максимум попыток загрузки; `MAX_JOB_ATTEMPTS=3` — попытки после перезапуска runner; `MAX_QUEUED_JOBS=20` — предел активных заданий. Встроенные таймауты и FFmpeg-потоки также настраиваются через ENV.
@@ -131,6 +138,8 @@ N8N_PROXY_HOPS=1
 ## Создать первый настоящий ролик
 
 После настройки ключей и успешного запуска:
+
+Для OpenRouter сначала выполните `python scripts/check_providers.py` в терминале контейнера **worker** в Dokploy (либо `make preflight` из каталога Compose). Это проверка ключей/модели и одного поиска Pexels, без платных запросов к модели. Затем создайте **одно** задание:
 
 1. Откройте `/docs` с логином `videott` и паролем `WORKER_API_KEY`.
 2. Найдите **POST /api/v1/videos → Try it out**.

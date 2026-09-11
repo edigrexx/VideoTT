@@ -1,4 +1,6 @@
-.PHONY: up down logs migrate test smoke-test seed first-video list
+.PHONY: up down logs migrate test smoke-test seed first-video list preflight
+preflight:
+	docker compose exec worker python scripts/check_providers.py
 up:
 	docker compose up -d --build
 

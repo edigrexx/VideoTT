@@ -2,6 +2,10 @@
 
 Дата: 2026-09-11. UPDATE из PROMT.md исключает все API публикации.
 
+- [OpenRouter Web Search server tool](https://openrouter.ai/docs/guides/features/server-tools/web-search): `POST /api/v1/chat/completions`, инструмент `openrouter:web_search`, engine Exa, лимиты `max_uses`, `max_tool_calls`, `max_total_results`. API помечен beta; изменения контракта могут потребовать обновления интеграции. При отсутствии tool citations приложение останавливает исследование.
+- [OpenRouter Structured Outputs](https://openrouter.ai/docs/guides/features/structured-outputs): `response_format=json_schema`, `strict=true`, `provider.require_parameters=true`; локальная Pydantic-валидация остаётся обязательной.
+- [OpenRouter usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting): стоимость берётся из `usage.cost`, неизвестные значения не подменяются нулевой ценой. [Reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens): настраиваемый бюджет рассуждений внутри общего лимита ответа.
+
 - [Pexels API](https://www.pexels.com/api/documentation/): `GET https://api.pexels.com/v1/videos/search`, параметры `query`, `orientation`, `per_page`, `locale`, заголовок `Authorization: <key>`, ответ `videos[].video_files[]`. Старый `/videos/search` не используется. Поля размера файла не гарантируются, поэтому реальный download ограничивается и по Content-Length, и по числу полученных байтов.
 - [Pexels License](https://www.pexels.com/license/): происхождение, автор, URL и обозначение лицензии сохраняются для каждого клипа. Это не отменяет ограничений на изображения людей/брендов и не выдаёт разрешение на любой контекст.
 - [OpenAI web search](https://developers.openai.com/api/docs/guides/tools-web-search): Responses API, инструмент `web_search`; используются URL citations и `web_search_call.action.sources`. Приложение дополнительно загружает и проверяет источники, а не доверяет придуманным URL.
