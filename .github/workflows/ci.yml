@@ -15,6 +15,27 @@ jobs:
         run: docker compose -f docker-compose.test.yml config --quiet
       - name: Unit, PostgreSQL integration and real FFmpeg smoke
         run: docker compose -f docker-compose.test.yml run --build --rm tests
+      - name: Start production Compose in offline fixture mode
+        run: |
+          docker compose -f docker-compose.test.yml down --volumes
+          python3 scripts/setup_env.py --test-mode
+          docker compose config --quiet
+          docker compose up -d --build --wait --wait-timeout 240
+      - name: Verify persistent job through production HTTP API
+        run: docker compose exec -T worker python scripts/client.py create --wait
+      - name: Verify n8n workflow import
+        run: |
+          docker compose cp workflows/manual.json n8n:/tmp/manual.json
+          docker compose cp workflows/daily.json n8n:/tmp/daily.json
+          docker compose exec -T n8n n8n import:workflow --input=/tmp/manual.json
+          docker compose exec -T n8n n8n import:workflow --input=/tmp/daily.json
+      - name: Diagnose Compose failure
+        if: failure()
+        run: |
+          docker compose ps -a || true
+          docker compose logs --tail=100 worker runner migrate n8n postgres || true
       - name: Stop disposable test database
         if: always()
-        run: docker compose -f docker-compose.test.yml down --volumes
+        run: |
+          docker compose -f docker-compose.test.yml down --volumes
+          if [ -f .env ]; then docker compose down --volumes; fi
