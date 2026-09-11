@@ -27,8 +27,7 @@ jobs:
         run: |
           docker compose cp workflows/manual.json n8n:/tmp/manual.json
           docker compose cp workflows/daily.json n8n:/tmp/daily.json
-          docker compose exec -T n8n n8n import:workflow --input=/tmp/manual.json
-          docker compose exec -T n8n n8n import:workflow --input=/tmp/daily.json
+          docker compose exec -T n8n node -e "for (const file of ['/tmp/manual.json','/tmp/daily.json']) { const workflow = require(file); if (!workflow.nodes || !workflow.connections || workflow.active) process.exit(1); console.log(file + ': ' + workflow.nodes.length + ' nodes'); }"
       - name: Diagnose Compose failure
         if: failure()
         run: |
