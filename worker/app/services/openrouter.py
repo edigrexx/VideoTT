@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,11 +14,86 @@ from app.logging import event
 from app.services.llm import OpenAIProvider
 
 
-def check_response(response):
-    """Never expose upstream bodies: they can echo prompts or credentials."""
+def response_schema(schema, model):
+    definition = schema.model_json_schema()
+    if not model.startswith("google/gemini"):
+        return definition
+    # Gemini accepts a subset of JSON Schema and can reject a bounded nested
+    # schema with HTTP 400. Keep types/required fields here; validate all limits,
+    # patterns and relationships with the original Pydantic model after receipt.
+    limits = {
+        "minLength",
+        "maxLength",
+        "pattern",
+        "minItems",
+        "maxItems",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+    }
+
+    def simplify(node, visited=()):
+        if isinstance(node, list):
+            return [simplify(item, visited) for item in node]
+        if not isinstance(node, dict):
+            return node
+        node = dict(node)
+        ref = node.pop("$ref", None)
+        if ref:
+            if not ref.startswith("#/$defs/") or ref in visited:
+                raise PipelineError("LLM_SCHEMA_CONFIG", "Unsupported or recursive Gemini response schema")
+            target = definition["$defs"][ref.removeprefix("#/$defs/")]
+            return simplify({**target, **node}, (*visited, ref))
+        result = {}
+        for key, value in node.items():
+            if key in limits or key == "$defs":
+                continue
+            # Property names are data, not schema keywords.
+            if key == "properties":
+                result[key] = {name: simplify(prop, visited) for name, prop in value.items()}
+            else:
+                result[key] = simplify(value, visited)
+        return result
+
+    return simplify(definition)
+
+
+def safe_error_detail(response, secrets=()):
+    """Only selected error messages, with credentials/URLs removed before truncation."""
+    try:
+        error = response.json().get("error", {})
+        if not isinstance(error, dict):
+            return ""
+        messages = [error.get("message")]
+        metadata = error.get("metadata") or {}
+        raw = metadata.get("raw") if isinstance(metadata, dict) else None
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                raw = None  # Do not expose arbitrary HTML, tracebacks or raw payloads.
+        if isinstance(raw, dict) and isinstance(raw.get("error"), dict):
+            messages.append(raw["error"].get("message"))
+        text = " | ".join(m for m in messages if isinstance(m, str))
+        for secret in secrets:
+            if secret:
+                text = text.replace(secret, "[REDACTED]")
+        text = re.sub(r"\bBearer\s+\S+", "Bearer [REDACTED]", text, flags=re.I)
+        text = re.sub(r"\bsk-[A-Za-z0-9_-]+", "[REDACTED]", text)
+        text = re.sub(r"https?://[^\s\"<>]+", "[URL]", text)
+        return " ".join(text.split())[:700]
+    except (ValueError, AttributeError, TypeError):
+        return ""
+
+
+def check_response(response, secrets=()):
+    """Known status messages stay fixed; a 400 includes redacted validation details."""
     if response.is_success:
         return
     errors = {
+        400: ("OPENROUTER_BAD_REQUEST", "OpenRouter rejected request parameters"),
         401: ("OPENROUTER_AUTH", "OpenRouter rejected LLM_API_KEY; check the key in Environment"),
         402: ("OPENROUTER_CREDITS", "OpenRouter balance or API key spending limit is exhausted"),
         403: ("OPENROUTER_ACCESS", "OpenRouter denied access; check account and model permissions"),
@@ -30,6 +106,10 @@ def check_response(response):
             f"OpenRouter returned HTTP {response.status_code}; check model and service status",
         ),
     )
+    if response.status_code == 400:
+        detail = safe_error_detail(response, secrets)
+        if detail:
+            message += ": " + detail
     raise PipelineError(code, message)
 
 
@@ -109,7 +189,10 @@ class OpenRouterProvider(OpenAIProvider):
             ) from None
         except httpx.HTTPError:
             raise PipelineError("OPENROUTER_NETWORK", "Could not connect to OpenRouter") from None
-        check_response(response)
+        try:
+            check_response(response, secrets=(self.settings.llm_api_key.get_secret_value(),))
+        except PipelineError as exc:
+            raise PipelineError(exc.code, f"{stage}: {exc.message}") from None
         try:
             data = response.json()
             if not isinstance(data, dict):
@@ -152,7 +235,7 @@ class OpenRouterProvider(OpenAIProvider):
                 "json_schema": {
                     "name": schema.__name__,
                     "strict": True,
-                    "schema": schema.model_json_schema(),
+                    "schema": response_schema(schema, self.settings.llm_model),
                 },
             },
         )

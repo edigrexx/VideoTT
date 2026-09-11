@@ -5,8 +5,8 @@ import pytest
 
 from app.config import Settings
 from app.errors import NeedsReview, PipelineError
-from app.schemas import Evaluation, Script
-from app.services.openrouter import OpenRouterProvider
+from app.schemas import Evaluation, ResearchResult, Script
+from app.services.openrouter import OpenRouterProvider, response_schema, safe_error_detail
 from app.services.output import write_output
 from app.services.preflight import check_providers
 from app.services.providers import create_llm_provider
@@ -164,6 +164,52 @@ async def test_timeout_not_retried():
         await provider.close()
 
 
+async def test_bad_request_explains_nested_provider_error_without_secrets():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "Provider returned error",
+                    "metadata": {
+                        "raw": json.dumps(
+                            {
+                                "error": {
+                                    "message": "Unsupported tools[0].type; secret-test-key "
+                                    "Bearer another-token https://example.com/?signed=private\ninvalid value"
+                                }
+                            }
+                        ),
+                        "request": {"Authorization": "must-not-print-this"},
+                    },
+                }
+            },
+        )
+
+    provider = await provider_for(handler)
+    try:
+        with pytest.raises(PipelineError) as exc:
+            await provider.discover_sources("Keyboard bumps")
+        assert exc.value.code == "OPENROUTER_BAD_REQUEST"
+        assert str(exc.value).startswith("source_search:")
+        assert "Unsupported tools[0].type" in str(exc.value)
+        for secret in ("secret-test-key", "another-token", "signed=private", "must-not-print-this"):
+            assert secret not in str(exc.value)
+        assert len(calls) == 1
+    finally:
+        await provider.close()
+
+
+@pytest.mark.parametrize(
+    "body", [[], {"error": "bad"}, {"error": {"metadata": {"raw": "private traceback"}}}]
+)
+def test_error_diagnostics_ignore_unknown_bodies(body):
+    assert safe_error_detail(httpx.Response(400, json=body)) == ""
+
+
 @pytest.mark.parametrize(
     "variant,code",
     [
@@ -278,5 +324,50 @@ async def test_usage_reaches_downloadable_metadata(sample, tmp_path):
         assert usage["reported_cost_usd"] == 0.012 and not usage["complete"]
         assert usage["scope"] == "current_attempt_received_responses_only"
         assert len(usage["requests"]) == 2
+    finally:
+        await provider.close()
+
+
+@pytest.mark.parametrize("schema", [ResearchResult, Script, Evaluation])
+def test_gemini_schema_keeps_structure_without_complex_decoder_limits(schema):
+    original = schema.model_json_schema()
+    simple = response_schema(schema, "google/gemini-2.5-flash")
+    encoded = json.dumps(simple)
+    for keyword in ("$defs", "$ref", "maxLength", "pattern", "maxItems", "minimum", "maximum"):
+        assert f'"{keyword}"' not in encoded
+    assert simple["required"] == original["required"]
+    assert simple["additionalProperties"] is False
+    assert simple["properties"].keys() == original["properties"].keys()
+    if schema == ResearchResult:
+        assert simple["properties"]["facts"]["items"]["required"] == [
+            "id",
+            "text",
+            "source_urls",
+            "evidence_quotes",
+        ]
+    assert response_schema(schema, "openai/test-model") == original
+    assert schema.model_json_schema() == original
+
+
+@pytest.mark.parametrize("violation", ["empty_facts", "long_text"])
+async def test_gemini_relaxed_wire_schema_still_enforces_local_limits(sample, violation):
+    research, _, _ = sample
+    payload = research.model_dump()
+    if violation == "empty_facts":
+        payload["facts"] = []
+    else:
+        payload["summary"] = "x" * 12001
+
+    def handler(request):
+        wire = json.loads(request.content)["response_format"]["json_schema"]["schema"]
+        assert "$defs" not in wire
+        assert "maxLength" not in json.dumps(wire)
+        return httpx.Response(200, json=completion(json.dumps(payload)))
+
+    provider = await provider_for(handler)
+    try:
+        with pytest.raises(NeedsReview) as exc:
+            await provider.structured(ResearchResult, "Extract facts", {})
+        assert exc.value.code == "LLM_SCHEMA"
     finally:
         await provider.close()

@@ -26,7 +26,7 @@ async def check_providers(settings, transport=None):
                     "https://openrouter.ai/api/v1/key",
                     headers={"Authorization": "Bearer " + settings.llm_api_key.get_secret_value()},
                 )
-                check_response(response)
+                check_response(response, secrets=(settings.llm_api_key.get_secret_value(),))
                 data = response.json()["data"]
                 remaining = data.get("limit_remaining")
                 usable = not data.get("is_free_tier", False) and (remaining is None or remaining > 0)
