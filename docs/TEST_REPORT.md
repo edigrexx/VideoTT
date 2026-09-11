@@ -11,12 +11,13 @@
 - Реальная безопасная загрузка публичной HTML-страницы с DNS pinning и TLS SNI прошла.
 - Реальный Edge TTS произнёс короткую тестовую фразу и вернул **6 word timing cues**.
 - Экспорты n8n проверены как JSON, с авторизацией, ограниченным polling и без вызовов публикации.
+- GitHub Actions run `34573468161` прошёл полностью: Docker-образ собран на Ubuntu, production Compose поднят в offline fixture mode, job доведён до READY через HTTP API, оба workflow проверены внутри n8n-контейнера.
 
 Для FFmpeg smoke на Mac использован отдельный FFmpeg с libass в локальном venv: системный FFmpeg не поддерживал ASS. Для PostgreSQL — переносимые бинарники в игнорируемой `.artifacts/`, системная установка не изменялась.
 
 ## Что ещё требует внешней среды
 
-- На этом Mac Docker отсутствует; Linux Docker build и контейнерные тесты вынесены в `.github/workflows/ci.yml` и `make test`. Результат GitHub Actions следует проверять для текущего коммита.
+- На этом Mac Docker отсутствует; Linux Docker build и контейнерные тесты вынесены в `.github/workflows/ci.yml`. Production Compose уже проверен в GitHub Actions для коммита `2955c2c`.
 - Live OpenAI research + Pexels footage пока не запускались: реальные API-ключи пользователя не предоставлены. Структура запросов проверена по документации и mocked tests; это не подтверждение качества реальных сценариев или релевантности stock.
 - Импорт и запуск workflows в вашей n8n, DNS/HTTPS и сам Deploy в вашем Dokploy выполняются после внесения Environment. Доступ к вашему серверу не предоставлен.
 - Offline MP4 содержит тестовый фон и тон, явно помечен TEST FIXTURE. Он проверяет технический конвейер и не предназначен для публикации.
