@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic_core import PydanticCustomError
 
 Text = Annotated[str, Field(min_length=1, max_length=12000)]
+VisualQuery = Annotated[str, Field(min_length=3, max_length=150)]
 
 
 def narration_word_count(text):
@@ -98,7 +99,9 @@ class ResearchExtraction(StrictModel):
 class ScenePlan(StrictModel):
     order: int = Field(ge=1, le=16)
     narration: Text
-    visual_query: Annotated[str, Field(min_length=3, max_length=150)]
+    visual_query: VisualQuery
+    # Optional so scripts stored before the fallback existed still validate.
+    visual_query_fallback: VisualQuery | None = None
     duration_hint: float = Field(gt=0, le=20)
     fact_ids: list[Text] = Field(min_length=1, max_length=16)
 
@@ -155,7 +158,12 @@ class Script(StrictModel):
 
 class SceneDraft(StrictModel):
     narration: Text = Field(description="Scene body ONLY. Do not repeat the separate hook or payoff.")
-    visual_query: Annotated[str, Field(min_length=3, max_length=150)]
+    visual_query: VisualQuery = Field(
+        description="English Pexels query describing the shot to film, not the object named in the narration."
+    )
+    visual_query_fallback: VisualQuery = Field(
+        description="Broader English Pexels query for a thematically close shot stock libraries certainly have."
+    )
     duration_hint: float = Field(gt=0, le=20)
     fact_ids: list[Text] = Field(min_length=1, max_length=16)
 

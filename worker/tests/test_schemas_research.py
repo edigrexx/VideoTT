@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.errors import NeedsReview
-from app.schemas import Evaluation, ResearchExtraction, Script, VideoCreate
+from app.schemas import Evaluation, ResearchExtraction, Script, ScriptDraft, VideoCreate
 from app.services.research import validate_fact_evidence, validate_script_evidence
 
 
@@ -27,6 +27,27 @@ def test_script_rejects_bad_structure(sample, mutation):
         data["hook"] = "This is not the actual opening"
     with pytest.raises(ValidationError):
         Script.model_validate(data)
+
+
+def test_scripts_stored_before_the_fallback_existed_still_load(sample):
+    data = sample[2].model_dump()
+    for scene in data["scenes"]:
+        assert scene.pop("visual_query_fallback")
+    restored = Script.model_validate(data)
+    assert all(scene.visual_query_fallback is None for scene in restored.scenes)
+    assert restored.scenes[0].visual_query == sample[2].scenes[0].visual_query
+
+
+def test_draft_scenes_require_both_stock_queries(sample):
+    draft = sample[2].model_dump(exclude={"narration"})
+    for scene in draft["scenes"]:
+        scene.pop("order")
+    draft["scenes"][0]["narration"] = draft["scenes"][0]["narration"].removeprefix(sample[2].hook).strip()
+    draft["scenes"][-1]["narration"] = draft["scenes"][-1]["narration"].removesuffix(sample[2].payoff).strip()
+    assert ScriptDraft.model_validate(draft).scenes[0].visual_query_fallback
+    draft["scenes"][0].pop("visual_query_fallback")
+    with pytest.raises(ValidationError):
+        ScriptDraft.model_validate(draft)
 
 
 def test_quotes_must_exist_in_retrieved_text(sample):

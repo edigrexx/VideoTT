@@ -88,7 +88,7 @@ async def process_job(job_id, settings, session_factory):
             assets, used, clips = [], set(), []
             for scene_id, scene in zip(scene_ids, script.scenes, strict=True):
                 path = asset_dir / f"scene-{scene.order}.mp4"
-                asset = await stock.fetch(scene.visual_query, used, path)
+                asset = await stock.fetch(scene.visual_query, used, path, scene.visual_query_fallback)
                 asset.update(scene_id=scene_id, video_id=video_id)
                 with owned_session() as db:
                     db.add(Asset(**asset))
