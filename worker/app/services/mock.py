@@ -69,8 +69,8 @@ class MockLLMProvider:
                 {
                     "order": i + 1,
                     "narration": text,
-                    "visual_query": "close up of fingers resting on keyboard home row",
-                    "visual_query_fallback": "typing on computer keyboard",
+                    "visual_query": "keyboard home row",
+                    "visual_query_fallback": "computer keyboard",
                     "duration_hint": 8,
                     "fact_ids": ["f1", "f2"],
                 }

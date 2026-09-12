@@ -8,7 +8,7 @@ from app.services.validation import script_length_guidance, validation_detail
 @pytest.mark.parametrize(
     "violation,expected",
     [
-        ("words", "Narration must contain 135–215 words"),
+        ("words", "Narration must contain 120–215 words"),
         ("order", "Scenes must be consecutive and ordered"),
         ("duration", "scenes.0.duration_hint: value above maximum"),
         ("hashtag", "hashtags.0: text does not match required pattern"),
@@ -54,7 +54,7 @@ def test_word_count_handles_russian_and_hyphenated_words():
     assert narration_word_count("F и J — тактильные метки. Кто-то их замечает!") == 8
 
 
-@pytest.mark.parametrize("length,accepted", [(134, False), (135, True), (215, True), (216, False)])
+@pytest.mark.parametrize("length,accepted", [(119, False), (120, True), (215, True), (216, False)])
 def test_word_count_boundaries_remain_enforced(sample, length, accepted):
     payload = sample[2].model_dump()
     base, rest = divmod(length, len(payload["scenes"]))

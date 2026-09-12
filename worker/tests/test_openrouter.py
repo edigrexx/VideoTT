@@ -380,7 +380,7 @@ async def test_hook_and_narration_errors_are_repaired_together(sample):
         assert len(seen) == 2
         feedback = seen[1]["messages"][-1]["content"]
         assert "hook: Opening hook must contain at most 10 words; got 14" in feedback
-        assert "narration: Narration must contain 135–215 words; got 24" in feedback
+        assert "narration: Narration must contain 120–215 words; got 24" in feedback
         assert "Measured hook: 14 words" in feedback
         assert "Measured narration: 24 words" in feedback
         assert "Коротко" not in feedback
@@ -539,7 +539,40 @@ async def test_preflight_rejects_missing_model_and_exhausted_key():
         return httpx.Response(200, json={"data": []})
 
     result = await check_providers(settings(), httpx.MockTransport(handler))
-    assert all(not c["ok"] for c in result)
+    failed = {c["check"] for c in result if not c["ok"]}
+    assert failed == {"OpenRouter key", "OpenRouter model", "Pexels"}
+    # Pixabay is an optional second library: absent is reported, but is not a failure.
+    optional = next(c for c in result if c["check"] == "Pixabay")
+    assert optional["ok"] and "not configured" in optional["detail"]
+
+
+async def test_preflight_reports_a_rejected_pixabay_key_without_leaking_it():
+    def handler(request):
+        if request.url.path.endswith("/key"):
+            return httpx.Response(200, json={"data": {"is_free_tier": False, "limit_remaining": 1}})
+        if "pixabay" in request.url.host:
+            return httpx.Response(400, json={})
+        if request.url.path.endswith("/models"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "google/gemini-2.5-flash",
+                            "supported_parameters": ["response_format", "tools", "reasoning"],
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"videos": [{"id": 1}]})
+
+    result = await check_providers(
+        settings(pexels_api_key="pexels-test", pixabay_api_key="pixabay-secret"),
+        httpx.MockTransport(handler),
+    )
+    pixabay = next(c for c in result if c["check"] == "Pixabay")
+    assert not pixabay["ok"]
+    assert "pixabay-secret" not in json.dumps(result)
 
 
 async def test_usage_reaches_downloadable_metadata(sample, tmp_path):

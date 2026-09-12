@@ -80,4 +80,28 @@ async def check_providers(settings, transport=None):
                 )
             except Exception:
                 add("Pexels", False, "Could not verify Pexels; check network and key")
+
+        if not settings.pixabay_api_key.get_secret_value():
+            add("Pixabay", True, "Optional second library not configured; Pexels is used alone")
+        else:
+            try:
+                response = await client.get(
+                    "https://pixabay.com/api/videos/",
+                    params={
+                        "key": settings.pixabay_api_key.get_secret_value(),
+                        "q": "keyboard",
+                        "per_page": 3,
+                    },
+                )
+                ok = response.is_success and bool(response.json().get("hits"))
+                add(
+                    "Pixabay",
+                    ok,
+                    "Key accepted; video search works"
+                    if ok
+                    else f"No usable response; HTTP {response.status_code}; check key/quota",
+                )
+            except Exception:
+                # Never surface the request URL: Pixabay carries the key in it.
+                add("Pixabay", False, "Could not verify Pixabay; check network and key")
     return checks

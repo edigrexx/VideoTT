@@ -3,17 +3,26 @@ from datetime import datetime, timezone
 
 from app.errors import PipelineError
 
+# Each library keeps its own licence name and the credit line it asks callers to show.
+STOCK_LICENSES = {
+    "pexels": ("Pexels License", "Videos provided by Pexels — https://www.pexels.com"),
+    "pixabay": ("Pixabay Content License", "Videos provided by Pixabay — https://pixabay.com"),
+}
+TEST_LICENSE = ("CC0-1.0 (generated test shapes)", "Synthetic test fixtures")
+
 
 def rights_manifest(video_id, assets, is_test=False):
     entries = []
+    credits = []
     for asset in assets:
-        allowed = (asset["provider"] == "pexels" and asset["license"] == "Pexels License") or (
-            is_test
-            and asset["provider"] == "synthetic-test"
-            and asset["license"] == "CC0-1.0 (generated test shapes)"
-        )
+        expected, credit = STOCK_LICENSES.get(asset["provider"], (None, None))
+        if is_test and asset["provider"] == "synthetic-test":
+            expected, credit = TEST_LICENSE
+        allowed = expected is not None and asset["license"] == expected
         if not allowed or not asset.get("author") or not asset.get("source_url"):
             raise PipelineError("UNKNOWN_LICENSE", "Asset has missing or unsupported rights metadata")
+        if credit not in credits:
+            credits.append(credit)
         entries.append(
             {
                 "scene_id": str(asset["scene_id"]),
@@ -32,9 +41,7 @@ def rights_manifest(video_id, assets, is_test=False):
         "video_id": str(video_id),
         "is_test": is_test,
         "assets": entries,
-        "attribution": "Videos provided by Pexels — https://www.pexels.com"
-        if not is_test
-        else "Synthetic test fixtures",
+        "attribution": " | ".join(credits) if credits else "No stock footage used",
         "font": {"name": "DejaVu Sans", "license": "Bitstream Vera / DejaVu public domain additions"},
         "audio": {
             "type": "test tone" if is_test else "original narration synthesized by Edge TTS",
