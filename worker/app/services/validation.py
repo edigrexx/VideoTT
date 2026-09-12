@@ -80,7 +80,7 @@ def validation_detail(schema, error):
         "Scenes must be consecutive and ordered",
         "Narration must start with hook and end with payoff",
         "Keep the opening hook to 10 words or fewer",
-        "Narration must contain 135–215 words",
+        "Narration must contain 120–215 words",
     }
     messages = {
         "missing": "required field missing",
@@ -109,7 +109,7 @@ def validation_detail(schema, error):
         if item["type"] == "narration_word_count":
             actual = (item.get("ctx") or {}).get("actual")
             if type(actual) is int:
-                message = f"Narration must contain 135–215 words; got {actual}"
+                message = f"Narration must contain 120–215 words; got {actual}"
         if item["type"] == "hook_word_count":
             actual = (item.get("ctx") or {}).get("actual")
             if type(actual) is int:
