@@ -140,8 +140,12 @@ class OpenAIProvider:
             "The application prepends hook to the first scene, appends payoff to the last, numbers scenes and "
             "joins the narration. Do not return a full narration field or scene orders. "
             "Each scene lists all research fact_ids it uses, including hook facts in the first scene and payoff "
-            "facts in the last. Use simple realistic Pexels stock search queries, "
-            "not precise historical footage we cannot license. Estimated duration 60–90 seconds. "
+            "facts in the last. Give every scene two English Pexels search queries for simple realistic "
+            "footage, never precise historical footage we cannot license. visual_query describes the SHOT TO "
+            "FILM — people, hands, actions, objects in a setting — not the subject named in the narration. "
+            "Bad: 'floppy disk'. Good: 'hands inserting disk into old computer'. visual_query_fallback is a "
+            "broader but thematically close shot that certainly exists on stock, for example "
+            "'person typing on retro computer'. The two queries must differ. Estimated duration 60–90 seconds. "
             "Caption and 3–6 hashtags must also use supported facts. Return hashtags without #. "
             "Title, hook, payoff and scene narration must be consistent. Do not mention the research process.",
             research.model_dump(),

@@ -7,13 +7,23 @@ import respx
 from app.config import Settings
 from app.errors import PipelineError
 from app.services.network import bounded_fetch, public_address
-from app.services.stock import PexelsProvider, PexelsResponse, VideoFile, choose_file
+from app.services.stock import PexelsProvider, PexelsResponse, PexelsVideo, VideoFile, choose_file
 
 
 def file(id, w, h):
     return VideoFile(
         id=id, width=w, height=h, file_type="video/mp4", link=f"https://videos.pexels.com/{id}.mp4"
     )
+
+
+def video(id):
+    return {
+        "id": id,
+        "url": f"https://www.pexels.com/video/{id}/",
+        "duration": 12,
+        "user": {"name": "Author"},
+        "video_files": [file(id, 1080, 1920).model_dump()],
+    }
 
 
 def test_best_file_prefers_full_hd_not_4k():
@@ -23,20 +33,11 @@ def test_best_file_prefers_full_hd_not_4k():
 
 @respx.mock
 async def test_pexels_current_endpoint_parsing():
-    data = {
-        "videos": [
-            {
-                "id": 42,
-                "url": "https://www.pexels.com/video/42/",
-                "duration": 12,
-                "user": {"name": "Author"},
-                "video_files": [file(2, 1080, 1920).model_dump()],
-            }
-        ]
-    }
+    data = {"videos": [video(42)]}
+    # The full Pexels page keeps narrow topics from running out of unused clips.
     route = respx.get(
         "https://api.pexels.com/v1/videos/search",
-        params={"query": "keyboard", "orientation": "portrait", "per_page": 20, "locale": "en-US"},
+        params={"query": "keyboard", "orientation": "portrait", "per_page": 80, "locale": "en-US"},
     ).mock(return_value=httpx.Response(200, json=data))
     result = await PexelsProvider(Settings(_env_file=None, pexels_api_key="test")).search(
         "keyboard", "portrait"
@@ -87,3 +88,57 @@ async def test_download_size_and_content_type(monkeypatch, tmp_path):
     route.mock(return_value=httpx.Response(200, content=b"html", headers={"Content-Type": "text/html"}))
     with pytest.raises(PipelineError, match="content type"):
         await bounded_fetch("https://example.com/file", limit=100, timeout=1, types=("video/mp4",))
+
+
+async def searched(provider, used, fallback, tmp_path, monkeypatch, pools):
+    queries = []
+
+    async def search(query, orientation):
+        queries.append((query, orientation))
+        return [PexelsVideo.model_validate(v) for v in pools.get(query, [])]
+
+    async def download(url, **kwargs):
+        kwargs["destination"].write_bytes(b"clip")
+
+    async def probe(path, settings):
+        return {"streams": [{"codec_type": "video"}]}
+
+    monkeypatch.setattr(provider, "search", search)
+    monkeypatch.setattr("app.services.stock.bounded_fetch", download)
+    monkeypatch.setattr("app.services.stock.probe", probe)
+    asset = await provider.fetch("exact shot", used, tmp_path / "scene.mp4", fallback)
+    return queries, asset
+
+
+async def test_fallback_query_is_searched_before_reusing_clips(tmp_path, monkeypatch):
+    provider = PexelsProvider(Settings(_env_file=None, pexels_api_key="test"))
+    pools = {"exact shot": [video(7)], "broader shot": [video(9)]}
+    # Scene 7 already played, so the exact query offers nothing new for this scene.
+    queries, asset = await searched(provider, {"7"}, "broader shot", tmp_path, monkeypatch, pools)
+    assert asset["provider_asset_id"] == "9"
+    assert queries == [("exact shot", "portrait"), ("exact shot", "landscape"), ("broader shot", "portrait")]
+
+
+async def test_exact_query_wins_and_fallback_is_not_searched(tmp_path, monkeypatch):
+    provider = PexelsProvider(Settings(_env_file=None, pexels_api_key="test"))
+    pools = {"exact shot": [video(7)], "broader shot": [video(9)]}
+    queries, asset = await searched(provider, set(), "broader shot", tmp_path, monkeypatch, pools)
+    assert asset["provider_asset_id"] == "7"
+    assert queries == [("exact shot", "portrait")]
+
+
+async def test_repeated_clip_is_the_last_resort_after_both_queries(tmp_path, monkeypatch):
+    provider = PexelsProvider(Settings(_env_file=None, pexels_api_key="test"))
+    pools = {"exact shot": [video(7)], "broader shot": [video(7)]}
+    queries, asset = await searched(provider, {"7"}, "broader shot", tmp_path, monkeypatch, pools)
+    assert asset["provider_asset_id"] == "7"
+    assert [q for q, _ in queries] == ["exact shot", "exact shot", "broader shot", "broader shot"]
+
+
+async def test_missing_or_duplicate_fallback_costs_no_extra_request(tmp_path, monkeypatch):
+    provider = PexelsProvider(Settings(_env_file=None, pexels_api_key="test"))
+    pools = {"exact shot": [video(7)]}
+    for fallback in (None, "exact shot"):
+        queries, asset = await searched(provider, {"7"}, fallback, tmp_path, monkeypatch, pools)
+        assert asset["provider_asset_id"] == "7"
+        assert [q for q, _ in queries] == ["exact shot", "exact shot"]

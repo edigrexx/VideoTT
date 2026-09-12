@@ -76,7 +76,8 @@ class Settings(BaseSettings):
             f"Write audience-facing text and explanations in {language}. "
             "Keep JSON field names, IDs, URLs and proper names unchanged. "
             "Keep the input topic verbatim and evidence_quotes in their ORIGINAL source language; "
-            "never translate evidence quotes. Write visual_query in English for Pexels search."
+            "never translate evidence quotes. Write visual_query and visual_query_fallback in English "
+            "for Pexels search."
         )
 
     @property

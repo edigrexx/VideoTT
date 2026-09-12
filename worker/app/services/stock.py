@@ -52,7 +52,9 @@ def file_hash(path):
 
 
 class StockProvider(Protocol):
-    async def fetch(self, query: str, used: set[str], destination: Path) -> dict: ...
+    async def fetch(
+        self, query: str, used: set[str], destination: Path, fallback: str | None = None
+    ) -> dict: ...
 
 
 class PexelsProvider:
@@ -66,7 +68,7 @@ class PexelsProvider:
             async with httpx.AsyncClient(timeout=self.settings.http_timeout_sec) as client:
                 response = await client.get(
                     "https://api.pexels.com/v1/videos/search",
-                    params={"query": query, "orientation": orientation, "per_page": 20, "locale": "en-US"},
+                    params={"query": query, "orientation": orientation, "per_page": 80, "locale": "en-US"},
                     headers={"Authorization": self.settings.pexels_api_key.get_secret_value()},
                 )
                 check_status(response)
@@ -74,13 +76,19 @@ class PexelsProvider:
 
         return await retry_call(request)
 
-    async def fetch(self, query, used, destination):
+    async def fetch(self, query, used, destination, fallback=None):
+        # Precise scene query first; the broader fallback keeps a narrow topic from
+        # exhausting one small pool of generic clips before repeats are allowed.
+        queries = [query] + ([fallback] if fallback and fallback != query else [])
         repeat_candidates = []
         candidates = []
-        for orientation in ("portrait", "landscape"):
-            found = await self.search(query, orientation)
-            repeat_candidates.extend(found)
-            candidates = [video for video in found if str(video.id) not in used and video.video_files]
+        for search_query in queries:
+            for orientation in ("portrait", "landscape"):
+                found = await self.search(search_query, orientation)
+                repeat_candidates.extend(found)
+                candidates = [video for video in found if str(video.id) not in used and video.video_files]
+                if candidates:
+                    break
             if candidates:
                 break
         if not candidates:
@@ -132,7 +140,7 @@ class MockStockProvider:
     def __init__(self, settings):
         self.settings = settings
 
-    async def fetch(self, query, used, destination):
+    async def fetch(self, query, used, destination, fallback=None):
         index = len(used) + 1
         # Different portrait/landscape, fps and short durations exercise normalization/looping.
         size = "640x360" if index % 2 else "360x640"
