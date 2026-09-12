@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     openrouter_max_searches: int = Field(2, ge=1, le=4)
     openrouter_reasoning_tokens: int = Field(1024, ge=0, le=8192)
     pexels_api_key: SecretStr = SecretStr("")
+    # Optional second library; when set it is searched alongside Pexels.
+    pixabay_api_key: SecretStr = SecretStr("")
     tts_provider: Literal["edge", "mock"] = "edge"
     content_language: Literal["ru-RU", "en-US"] = "ru-RU"
     tts_voice: str = "ru-RU-SvetlanaNeural"
@@ -77,7 +79,7 @@ class Settings(BaseSettings):
             "Keep JSON field names, IDs, URLs and proper names unchanged. "
             "Keep the input topic verbatim and evidence_quotes in their ORIGINAL source language; "
             "never translate evidence quotes. Write visual_query and visual_query_fallback in English "
-            "for Pexels search."
+            "as short keyword searches for a stock video library."
         )
 
     @property

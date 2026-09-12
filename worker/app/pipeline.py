@@ -15,7 +15,7 @@ from app.services.output import write_output
 from app.services.providers import create_llm_provider
 from app.services.renderer import render
 from app.services.research import validate_fact_evidence, validate_script_evidence
-from app.services.stock import MockStockProvider, PexelsProvider
+from app.services.stock import MockStockProvider, create_stock_library
 from app.services.subtitles import write_subtitles
 from app.services.tts import EdgeTTSProvider, MockTTSProvider, build_narration
 
@@ -53,7 +53,7 @@ async def process_job(job_id, settings, session_factory):
                 )
             event("RESEARCHING", job_id, video_id, attempt=attempt)
             llm = create_llm_provider(settings, work / "llm_usage.jsonl")
-            stock = MockStockProvider(settings) if settings.is_test else PexelsProvider(settings)
+            stock = MockStockProvider(settings) if settings.is_test else create_stock_library(settings)
             tts = MockTTSProvider(settings) if settings.is_test else EdgeTTSProvider(settings)
             research, sources = await llm.research_topic(topic)
             # Persist research before validation so rejected facts remain inspectable.

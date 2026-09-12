@@ -159,10 +159,10 @@ class Script(StrictModel):
 class SceneDraft(StrictModel):
     narration: Text = Field(description="Scene body ONLY. Do not repeat the separate hook or payoff.")
     visual_query: VisualQuery = Field(
-        description="English Pexels query describing the shot to film, not the object named in the narration."
+        description="Stock KEYWORD search: 2–4 concrete English nouns naming this scene's subject. Not a sentence."
     )
     visual_query_fallback: VisualQuery = Field(
-        description="Broader English Pexels query for a thematically close shot stock libraries certainly have."
+        description="Broader 2–3 word English subject from the same topic that stock libraries certainly have."
     )
     duration_hint: float = Field(gt=0, le=20)
     fact_ids: list[Text] = Field(min_length=1, max_length=16)
