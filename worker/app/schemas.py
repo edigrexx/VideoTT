@@ -6,12 +6,18 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
+from app.services.relevance import relevance
+
 Text = Annotated[str, Field(min_length=1, max_length=12000)]
+# Share of a hook's words that may come from the title before it is just the title again.
+TITLE_ECHO = 0.6
 VisualQuery = Annotated[str, Field(min_length=3, max_length=150)]
 
 
 def narration_word_count(text):
     return len(re.findall(r"\b[\w'-]+\b", text))
+
+
 
 
 class StrictModel(BaseModel):
@@ -153,6 +159,10 @@ class Script(StrictModel):
             raise ValueError("Scenes must be consecutive and ordered")
         if not self.narration.startswith(self.hook) or not self.narration.endswith(self.payoff):
             raise ValueError("Narration must start with hook and end with payoff")
+        # A hook that only asks the title back opens no gap and wastes the first seconds.
+        # A question that is mostly the title reworded opens no gap and wastes the first seconds.
+        if self.hook.rstrip().endswith("?") and relevance(self.hook, self.title) >= TITLE_ECHO:
+            raise ValueError("Hook must not restate the title as a question")
         return self
 
 
@@ -173,7 +183,7 @@ class ScriptDraft(StrictModel):
 
     title: Annotated[str, Field(min_length=1, max_length=160)]
     hook: Annotated[str, Field(min_length=1, max_length=200)] = Field(
-        description="A separate opening sentence, 4–8 words. NOT the full first scene."
+        description="Opening sentence, 4–8 words: one surprising concrete claim. Not a question, not the title."
     )
     payoff: Annotated[str, Field(min_length=1, max_length=300)] = Field(
         description="A separate final sentence, about 8–12 words. Do not repeat it in scene bodies."

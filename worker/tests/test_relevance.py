@@ -46,3 +46,16 @@ def test_long_descriptive_query_cannot_match_its_own_best_result():
     sentence = "hands inserting floppy disk into old computer"
     assert relevance(sentence, "inserting floppy disk into vintage commodore 1541") < 0.6
     assert relevance("floppy disk", "inserting floppy disk into vintage commodore 1541") == 1.0
+
+
+def test_letters_outside_ascii_are_not_dropped():
+    """Russian titles and hooks are compared with the same scorer."""
+    assert keywords("Виниловые пластинки хранят звук") == ["виниловые", "пластинки", "хранят", "звук"]
+    assert keywords("café lights") == ["café", "light"]
+
+
+def test_a_reworded_russian_title_still_scores_as_the_title():
+    # The hook a live run actually produced, against that run's title.
+    hook = "Как виниловые пластинки хранят наш звук?"
+    assert relevance(hook, "Как виниловые пластинки хранят звук") >= 0.6
+    assert relevance("В канавке нет ни одного бита", "Как виниловые пластинки хранят звук") < 0.6
