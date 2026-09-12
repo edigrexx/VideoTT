@@ -87,6 +87,7 @@ def validation_detail(schema, error):
         "missing": "required field missing",
         "extra_forbidden": "unexpected field",
         "json_invalid": "invalid JSON",
+        "visual_query_language": "stock search query must be written in English, not the narration language",
         "string_type": "expected text",
         "string_too_short": "text too short",
         "string_too_long": "text too long",

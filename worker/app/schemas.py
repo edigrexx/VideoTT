@@ -20,6 +20,14 @@ def narration_word_count(text):
 
 
 
+def latin_share(text):
+    """Stock libraries index English only, so a query must be written in Latin letters."""
+    letters = re.findall(r"[^\W\d_]", text)
+    if not letters:
+        return 0.0
+    return sum(bool(re.fullmatch(r"[A-Za-z]", c)) for c in letters) / len(letters)
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -176,6 +184,16 @@ class SceneDraft(StrictModel):
     )
     duration_hint: float = Field(gt=0, le=20)
     fact_ids: list[Text] = Field(min_length=1, max_length=16)
+
+    @field_validator("visual_query", "visual_query_fallback")
+    @classmethod
+    def english_only(cls, value):
+        # Narration is translated; these are search keys and must stay English.
+        if latin_share(value) < 0.8:
+            raise PydanticCustomError(
+                "visual_query_language", "Stock search queries must be written in English"
+            )
+        return value
 
 
 class ScriptDraft(StrictModel):

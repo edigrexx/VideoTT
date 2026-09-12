@@ -85,6 +85,35 @@ def test_a_question_hook_that_adds_something_new_is_allowed(sample):
     assert Script.model_validate(data).hook == question
 
 
+@pytest.mark.parametrize(
+    "query,accepted",
+    [
+        ("morning fog", True),
+        ("café lights", True),
+        ("термометр роса влажность", False),
+        ("погода метеорология", False),
+        ("туман fog", False),
+    ],
+)
+def test_stock_queries_must_stay_english_whatever_the_narration_language(sample, query, accepted):
+    """A live run wrote every query in Russian and matched nothing on either library."""
+    draft = sample[2].model_dump(exclude={"narration"})
+    for scene in draft["scenes"]:
+        scene.pop("order")
+    draft["scenes"][0]["narration"] = draft["scenes"][0]["narration"].removeprefix(sample[2].hook).strip()
+    draft["scenes"][-1]["narration"] = draft["scenes"][-1]["narration"].removesuffix(sample[2].payoff).strip()
+    draft["scenes"][0]["visual_query"] = query
+    if accepted:
+        assert ScriptDraft.model_validate(draft).scenes[0].visual_query == query
+        return
+    with pytest.raises(ValidationError) as error:
+        ScriptDraft.model_validate(draft)
+    detail = validation_detail(ScriptDraft, error.value)
+    assert "must be written in English" in detail
+    # Diagnostics must not echo the model's own text back into the repair prompt.
+    assert query not in detail
+
+
 def test_quotes_must_exist_in_retrieved_text(sample):
     research, sources, _ = sample
     validate_fact_evidence(research, sources)
