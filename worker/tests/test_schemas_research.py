@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.errors import NeedsReview
-from app.schemas import Evaluation, Script, VideoCreate
+from app.schemas import Evaluation, ResearchExtraction, Script, VideoCreate
 from app.services.research import validate_fact_evidence, validate_script_evidence
 
 
@@ -35,6 +35,48 @@ def test_quotes_must_exist_in_retrieved_text(sample):
     research.facts[0].evidence_quotes = ["This is a fabricated quotation that is absent from the source."]
     with pytest.raises(NeedsReview, match="missing"):
         validate_fact_evidence(research, sources)
+
+
+def test_research_extraction_pairs_sources_and_quotes(sample):
+    research, sources, _ = sample
+    data = {
+        "topic": research.topic,
+        "summary": research.summary,
+        "facts": [
+            {
+                "id": "f1",
+                "text": "First fact",
+                "evidence": [
+                    {"source_url": sources[0]["url"], "quote": "First source passage"},
+                    {"source_url": "fixture://second-source", "quote": "Second source passage"},
+                ],
+            },
+            {
+                "id": "f2",
+                "text": "Second fact",
+                "evidence": [
+                    {"source_url": sources[0]["url"], "quote": "Another source passage"},
+                ],
+            },
+        ],
+    }
+    converted = ResearchExtraction.model_validate(data).to_research()
+    assert converted.facts[0].source_urls == [sources[0]["url"], "fixture://second-source"]
+    assert converted.facts[0].evidence_quotes == ["First source passage", "Second source passage"]
+    assert all(len(fact.source_urls) == len(fact.evidence_quotes) for fact in converted.facts)
+    del data["facts"][0]["evidence"][1]["quote"]
+    with pytest.raises(ValidationError):
+        ResearchExtraction.model_validate(data)
+
+
+def test_evidence_mismatch_diagnostics_include_counts_without_source_text(sample):
+    research, sources, _ = sample
+    research.facts[0].source_urls = ["private-source-a", "private-source-b"]
+    research.facts[0].evidence_quotes = ["private-quote"]
+    with pytest.raises(NeedsReview) as exc:
+        validate_fact_evidence(research, sources)
+    assert "facts[0]: 2 source URLs but 1 quotes" in str(exc.value)
+    assert "private" not in str(exc.value)
 
 
 def test_fact_urls_must_have_been_fetched(sample):

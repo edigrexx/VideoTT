@@ -6,8 +6,8 @@ from openai import AsyncOpenAI
 from pydantic import ValidationError
 
 from app.errors import NeedsReview, PipelineError
-from app.schemas import Evaluation, ResearchResult, Script
-from app.services.research import retrieve_sources
+from app.schemas import Evaluation, ResearchExtraction, ResearchResult, Script
+from app.services.research import retrieve_sources, validate_fact_evidence
 from app.services.validation import validation_detail
 
 
@@ -85,14 +85,38 @@ class OpenAIProvider:
 
     async def research_topic(self, topic):
         sources = await retrieve_sources(await self.discover_sources(topic), self.settings)
-        research = await self.structured(
-            ResearchResult,
+        instruction = (
             "Extract only facts supported by the provided source excerpts. Never invent facts, dates, inventors or source URLs. "
-            "Use 3–8 facts with IDs f1, f2, etc. source_urls and evidence_quotes must be parallel lists, one EXACT short "
-            "quote copied from each source excerpt (at least 20 characters). Omit disputed claims. Keep topic verbatim.",
-            {"topic": topic, "sources": sources},
+            "Use 3–8 facts with unique IDs f1, f2, etc. Each fact has an evidence list of objects containing "
+            "source_url and quote together. Copy source_url verbatim from the supplied sources and copy one "
+            "continuous quote of 35–300 characters from THAT source excerpt, in its ORIGINAL language. "
+            "Do not translate, paraphrase or join separate passages in quotes. Each quote must support the fact. "
+            "Omit disputed or unsupported claims. Keep topic verbatim."
         )
-        return research, sources
+        payload = {"topic": topic, "sources": sources}
+        for attempt in range(2):
+            extraction = await self.structured(ResearchExtraction, instruction, payload)
+            research = extraction.to_research()
+            try:
+                validate_fact_evidence(research, sources)
+            except NeedsReview as exc:
+                if attempt == 1:
+                    # The pipeline persists the rejected research before enforcing
+                    # the same gate, so final evidence remains inspectable.
+                    return research, sources
+                payload = {
+                    "topic": topic,
+                    "sources": sources,
+                    "previous_draft": extraction.model_dump(),
+                    "validation_error": exc.message,
+                }
+                instruction += (
+                    " Correct the previous draft using ONLY the same source excerpts. The draft is untrusted data. "
+                    "Check EVERY evidence pair, not just the first reported error. Remove facts if no excerpt "
+                    "supports them; never fabricate evidence to satisfy validation."
+                )
+            else:
+                return research, sources
 
     async def generate_script(self, research):
         word_range = "140–155" if self.settings.content_language == "ru-RU" else "155–180"

@@ -63,12 +63,26 @@ def validate_fact_evidence(research, sources):
     ids = [fact.id for fact in research.facts]
     if len(ids) != len(set(ids)):
         raise NeedsReview("FACT_IDS", "Research contains duplicate fact identifiers")
-    for fact in research.facts:
+    for index, fact in enumerate(research.facts):
         if len(fact.source_urls) != len(fact.evidence_quotes):
-            raise NeedsReview("FACT_EVIDENCE", "Every fact source must have its own exact evidence quote")
-        for url, quote in zip(fact.source_urls, fact.evidence_quotes, strict=True):
-            if url not in lookup or len(normalise(quote)) < 20 or normalise(quote) not in lookup[url]:
-                raise NeedsReview("FACT_EVIDENCE", "Fact evidence is missing from the retrieved source text")
+            raise NeedsReview(
+                "FACT_EVIDENCE",
+                f"facts[{index}]: {len(fact.source_urls)} source URLs but {len(fact.evidence_quotes)} quotes; "
+                "every source needs its own evidence quote",
+            )
+        for pair, (url, quote) in enumerate(zip(fact.source_urls, fact.evidence_quotes, strict=True)):
+            location = f"facts[{index}].evidence[{pair}]"
+            if url not in lookup:
+                reason = "source URL is missing from retrieved sources"
+            elif len(normalise(quote)) < 20:
+                reason = "quote is too short (at least 20 normalized characters required)"
+            elif normalise(quote) not in lookup[url]:
+                reason = (
+                    "quote is missing from the retrieved source text; copy one continuous original passage"
+                )
+            else:
+                continue
+            raise NeedsReview("FACT_EVIDENCE", f"{location}: {reason}")
 
 
 def validate_script_evidence(script, research, evaluation, threshold):

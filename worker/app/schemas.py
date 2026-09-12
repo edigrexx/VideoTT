@@ -56,6 +56,40 @@ class ResearchResult(StrictModel):
     facts: list[Fact] = Field(min_length=2, max_length=16)
 
 
+class EvidencePair(StrictModel):
+    source_url: Text
+    quote: Text
+
+
+class ExtractedFact(StrictModel):
+    id: Text
+    text: Text
+    evidence: list[EvidencePair] = Field(min_length=1, max_length=6)
+
+
+class ResearchExtraction(StrictModel):
+    """LLM wire format pairs each source with its quote; storage stays compatible."""
+
+    topic: Text
+    summary: Text
+    facts: list[ExtractedFact] = Field(min_length=2, max_length=16)
+
+    def to_research(self):
+        return ResearchResult(
+            topic=self.topic,
+            summary=self.summary,
+            facts=[
+                Fact(
+                    id=fact.id,
+                    text=fact.text,
+                    source_urls=[pair.source_url for pair in fact.evidence],
+                    evidence_quotes=[pair.quote for pair in fact.evidence],
+                )
+                for fact in self.facts
+            ],
+        )
+
+
 class ScenePlan(StrictModel):
     order: int = Field(ge=1, le=16)
     narration: Text
@@ -72,7 +106,9 @@ class Script(StrictModel):
     estimated_duration: float = Field(ge=60, le=90)
     scenes: list[ScenePlan] = Field(min_length=8, max_length=16)
     caption: Annotated[str, Field(min_length=1, max_length=1500)]
-    hashtags: list[Annotated[str, Field(pattern=r"^[A-Za-zА-Яа-яЁё0-9_]{1,40}$")]] = Field(min_length=3, max_length=6)
+    hashtags: list[Annotated[str, Field(pattern=r"^[A-Za-zА-Яа-яЁё0-9_]{1,40}$")]] = Field(
+        min_length=3, max_length=6
+    )
 
     @model_validator(mode="after")
     def consistency(self):

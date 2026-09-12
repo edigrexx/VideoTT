@@ -5,7 +5,7 @@ import pytest
 
 from app.config import Settings
 from app.errors import NeedsReview, PipelineError
-from app.schemas import Evaluation, ResearchResult, Script
+from app.schemas import Evaluation, ResearchExtraction, ResearchResult, Script
 from app.services.openrouter import OpenRouterProvider, response_schema, safe_error_detail
 from app.services.output import write_output
 from app.services.preflight import check_providers
@@ -48,6 +48,24 @@ async def provider_for(handler, tmp_path=None):
         transport=httpx.MockTransport(handler),
     )
     return provider
+
+
+def extraction_payload(research):
+    return {
+        "topic": research.topic,
+        "summary": research.summary,
+        "facts": [
+            {
+                "id": fact.id,
+                "text": fact.text,
+                "evidence": [
+                    {"source_url": url, "quote": quote}
+                    for url, quote in zip(fact.source_urls, fact.evidence_quotes, strict=True)
+                ],
+            }
+            for fact in research.facts
+        ],
+    }
 
 
 async def test_openrouter_structured_and_usage(tmp_path):
@@ -99,7 +117,7 @@ async def test_research_uses_only_tool_citations_and_retrieved_evidence(sample, 
                 for s in sources
             ]
             return httpx.Response(200, json=data)
-        return httpx.Response(200, json=completion(research.model_dump_json()))
+        return httpx.Response(200, json=completion(json.dumps(extraction_payload(research))))
 
     async def retrieve(candidates, config):
         assert [c["url"] for c in candidates] == [s["url"] for s in sources]
@@ -116,6 +134,63 @@ async def test_research_uses_only_tool_citations_and_retrieved_evidence(sample, 
         assert tool["parameters"]["max_uses"] == seen[0]["max_tool_calls"] == 2
         assert tool["parameters"]["max_total_results"] == 8
         assert len(provider.usage_records) == 2
+        wire_fact = seen[1]["response_format"]["json_schema"]["schema"]["properties"]["facts"]["items"]
+        assert wire_fact["properties"]["evidence"]["items"]["required"] == ["source_url", "quote"]
+        assert "source_urls" not in wire_fact["properties"]
+    finally:
+        await provider.close()
+
+
+@pytest.mark.parametrize("violation", ["quote", "url", "duplicate_id"])
+@pytest.mark.parametrize("repair_succeeds", [True, False])
+async def test_evidence_repair_is_bounded_and_reuses_sources(sample, monkeypatch, violation, repair_succeeds):
+    research, sources, _ = sample
+    invalid = extraction_payload(research)
+    if violation == "quote":
+        invalid["facts"][0]["evidence"][0]["quote"] = (
+            "A fabricated quotation that is absent from all sources."
+        )
+    elif violation == "url":
+        invalid["facts"][0]["evidence"][0]["source_url"] = "https://invented.invalid/private"
+    else:
+        invalid["facts"][1]["id"] = invalid["facts"][0]["id"]
+    seen, searches, retrievals = [], [], []
+
+    def handler(request):
+        body = json.loads(request.content)
+        seen.append(body)
+        payload = extraction_payload(research) if len(seen) == 2 and repair_succeeds else invalid
+        return httpx.Response(200, json=completion(json.dumps(payload)))
+
+    async def discover(topic):
+        searches.append(topic)
+        return sources
+
+    async def retrieve(candidates, config):
+        retrievals.append(candidates)
+        return sources
+
+    monkeypatch.setattr("app.services.llm.retrieve_sources", retrieve)
+    provider = await provider_for(handler)
+    provider.discover_sources = discover
+    try:
+        result, fetched = await provider.research_topic(research.topic)
+        assert len(searches) == len(retrievals) == 1
+        assert len(seen) == 2
+        assert all("tools" not in body for body in seen)
+        second = json.loads(seen[1]["messages"][1]["content"])
+        assert second["sources"] == sources
+        assert second["previous_draft"] == invalid
+        assert "validation_error" in second
+        assert provider.usage_summary()["reported_cost_usd"] == pytest.approx(0.024)
+        if repair_succeeds:
+            validate_fact_evidence(result, fetched)
+            assert result == research
+        else:
+            # Return rejected evidence for persistence; the pipeline must stop at its gate.
+            with pytest.raises(NeedsReview) as exc:
+                validate_fact_evidence(result, fetched)
+            assert exc.value.code == ("FACT_IDS" if violation == "duplicate_id" else "FACT_EVIDENCE")
     finally:
         await provider.close()
 
@@ -381,7 +456,7 @@ async def test_usage_reaches_downloadable_metadata(sample, tmp_path):
         await provider.close()
 
 
-@pytest.mark.parametrize("schema", [ResearchResult, Script, Evaluation])
+@pytest.mark.parametrize("schema", [ResearchResult, ResearchExtraction, Script, Evaluation])
 def test_gemini_schema_keeps_structure_without_complex_decoder_limits(schema):
     original = schema.model_json_schema()
     simple = response_schema(schema, "google/gemini-2.5-flash")
