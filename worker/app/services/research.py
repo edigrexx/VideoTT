@@ -13,6 +13,31 @@ def normalise(text):
     return " ".join(re.findall(r"[\w]+", text.casefold()))
 
 
+def _sentences(text):
+    return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+
+
+def repair_quote(quote, haystack):
+    """Longest contiguous run of sentences from quote that is present in haystack.
+
+    Models sometimes stitch together passages that are far apart in the source.
+    The individual sentences are usually verbatim, so keep the longest run that
+    really exists and drop the rest. Returns "" when nothing matches.
+    """
+    parts = _sentences(quote)
+    best = ""
+    for start in range(len(parts)):
+        for end in range(len(parts), start, -1):
+            candidate = " ".join(parts[start:end])
+            if len(candidate) <= len(best):
+                continue
+            normalised = normalise(candidate)
+            if normalised and normalised in haystack:
+                best = candidate
+                break
+    return best
+
+
 async def retrieve_sources(candidates, settings):
     sources = []
     seen = set()
@@ -77,6 +102,10 @@ def validate_fact_evidence(research, sources):
             elif len(normalise(quote)) < 20:
                 reason = "quote is too short (at least 20 normalized characters required)"
             elif normalise(quote) not in lookup[url]:
+                repaired = repair_quote(quote, lookup[url])
+                if len(normalise(repaired)) >= 20:
+                    fact.evidence_quotes[pair] = repaired
+                    continue
                 reason = (
                     "quote is missing from the retrieved source text; copy one continuous original passage"
                 )
