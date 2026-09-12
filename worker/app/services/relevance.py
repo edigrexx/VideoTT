@@ -20,9 +20,13 @@ STOPWORDS = frozenset(
 
 
 def keywords(text):
-    """Content words, lowercased and crudely singularized so plurals still match."""
+    """Content words, lowercased and crudely singularized so plurals still match.
+
+    Letters are matched in any alphabet: stock queries and descriptions are
+    English, but the same scoring compares Russian hooks against Russian titles.
+    """
     found = []
-    for word in re.findall(r"[a-z]+", (text or "").lower()):
+    for word in re.findall(r"[^\W\d_]+", (text or "").lower()):
         if len(word) < 3 or word in STOPWORDS:
             continue
         if len(word) > 3 and word.endswith("s"):

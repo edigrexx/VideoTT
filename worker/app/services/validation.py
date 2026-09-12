@@ -81,6 +81,7 @@ def validation_detail(schema, error):
         "Narration must start with hook and end with payoff",
         "Keep the opening hook to 10 words or fewer",
         "Narration must contain 120–215 words",
+        "Hook must not restate the title as a question",
     }
     messages = {
         "missing": "required field missing",

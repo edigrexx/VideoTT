@@ -5,6 +5,7 @@ from app.config import Settings
 from app.errors import NeedsReview
 from app.schemas import Evaluation, ResearchExtraction, Script, ScriptDraft, VideoCreate
 from app.services.research import validate_fact_evidence, validate_script_evidence
+from app.services.validation import validation_detail
 
 
 def test_script_roundtrip(sample):
@@ -48,6 +49,40 @@ def test_draft_scenes_require_both_stock_queries(sample):
     draft["scenes"][0].pop("visual_query_fallback")
     with pytest.raises(ValidationError):
         ScriptDraft.model_validate(draft)
+
+
+def test_hook_may_not_ask_the_title_back(sample):
+    """The first seconds decide retention; a restated title opens no gap."""
+    data = sample[2].model_dump()
+    restated = "Why do keyboards have tiny guides?"
+    data["title"] = "Your keyboard's tiny guide"
+    data["hook"] = restated
+    data["narration"] = restated + data["narration"].removeprefix(sample[2].hook)
+    data["scenes"][0]["narration"] = restated + data["scenes"][0]["narration"].removeprefix(sample[2].hook)
+    with pytest.raises(ValidationError) as error:
+        Script.model_validate(data)
+    assert "restate the title" in str(error.value)
+    assert "Hook must not restate the title as a question" in validation_detail(Script, error.value)
+
+
+def test_the_hook_a_live_run_produced_is_rejected(sample):
+    data = sample[2].model_dump()
+    restated = "Как виниловые пластинки хранят наш звук?"
+    data["title"] = "Как виниловые пластинки хранят звук"
+    data["hook"] = restated
+    data["narration"] = restated + data["narration"].removeprefix(sample[2].hook)
+    data["scenes"][0]["narration"] = restated + data["scenes"][0]["narration"].removeprefix(sample[2].hook)
+    with pytest.raises(ValidationError, match="restate the title"):
+        Script.model_validate(data)
+
+
+def test_a_question_hook_that_adds_something_new_is_allowed(sample):
+    question = "Can you feel your way home?"
+    data = sample[2].model_dump()
+    data["hook"] = question
+    data["narration"] = question + data["narration"].removeprefix(sample[2].hook)
+    data["scenes"][0]["narration"] = question + data["scenes"][0]["narration"].removeprefix(sample[2].hook)
+    assert Script.model_validate(data).hook == question
 
 
 def test_quotes_must_exist_in_retrieved_text(sample):
