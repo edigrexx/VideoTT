@@ -643,3 +643,76 @@ async def test_gemini_relaxed_wire_schema_still_enforces_local_limits(sample, vi
         assert exc.value.code == "LLM_SCHEMA"
     finally:
         await provider.close()
+
+
+def cited(finish_reason="stop", content="Found sources."):
+    """A search reply whose citations live in annotations, not in the prose."""
+    data = completion(content)
+    data["choices"][0]["finish_reason"] = finish_reason
+    data["choices"][0]["message"]["annotations"] = [
+        {"type": "url_citation", "url": "https://example.edu/fog", "title": "Fog"},
+        {"type": "url_citation", "url": "https://weather.gov/fog", "title": "Dew point"},
+    ]
+    return data
+
+
+async def test_search_cut_off_by_the_token_ceiling_still_yields_its_citations():
+    """A live run lost a job at 8249 completion tokens against a 8192 cap, even
+    though the citations it paid for had already arrived."""
+    provider = await provider_for(lambda request: httpx.Response(200, json=cited("length", "")))
+    try:
+        found = await provider.discover_sources("Why fog forms in the early morning")
+        assert [c["url"] for c in found] == ["https://example.edu/fog", "https://weather.gov/fog"]
+    finally:
+        await provider.close()
+
+
+async def test_truncated_search_without_citations_is_still_rejected():
+    truncated = completion("")
+    truncated["choices"][0]["finish_reason"] = "length"
+    provider = await provider_for(lambda request: httpx.Response(200, json=truncated))
+    try:
+        with pytest.raises(NeedsReview) as error:
+            await provider.discover_sources("topic")
+        assert error.value.code == "INSUFFICIENT_SOURCES"
+    finally:
+        await provider.close()
+
+
+async def test_a_refusal_during_search_is_not_excused_by_tolerating_truncation():
+    refused = cited("content_filter")
+    provider = await provider_for(lambda request: httpx.Response(200, json=refused))
+    try:
+        with pytest.raises(NeedsReview) as error:
+            await provider.discover_sources("topic")
+        assert error.value.code == "LLM_REFUSAL"
+    finally:
+        await provider.close()
+
+
+async def test_script_generation_still_refuses_an_incomplete_response(sample):
+    cut = completion(json.dumps(draft_payload(sample[2])))
+    cut["choices"][0]["finish_reason"] = "length"
+    provider = await provider_for(lambda request: httpx.Response(200, json=cut))
+    try:
+        with pytest.raises(NeedsReview) as error:
+            await provider.structured(Script, "Write", {})
+        assert error.value.code == "LLM_INCOMPLETE"
+    finally:
+        await provider.close()
+
+
+async def test_search_prompt_does_not_ask_for_a_summary_it_will_discard():
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=cited())
+
+    provider = await provider_for(handler)
+    try:
+        await provider.discover_sources("topic")
+        instruction = seen[0]["messages"][0]["content"]
+        assert "discarded" in instruction and "do NOT" in instruction
+    finally:
+        await provider.close()
