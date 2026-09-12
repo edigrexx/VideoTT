@@ -4,8 +4,13 @@ from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 Text = Annotated[str, Field(min_length=1, max_length=12000)]
+
+
+def narration_word_count(text):
+    return len(re.findall(r"\b[\w'-]+\b", text))
 
 
 class StrictModel(BaseModel):
@@ -123,8 +128,13 @@ class Script(StrictModel):
             raise ValueError("Narration must start with hook and end with payoff")
         if len(self.hook.split()) > 10:
             raise ValueError("Keep the opening hook to 10 words or fewer")
-        if not 135 <= len(re.findall(r"\b[\w'-]+\b", self.narration)) <= 215:
-            raise ValueError("Narration must contain 135–215 words")
+        words = narration_word_count(self.narration)
+        if not 135 <= words <= 215:
+            raise PydanticCustomError(
+                "narration_word_count",
+                "Narration must contain 135–215 words; got {actual}",
+                {"actual": words},
+            )
         return self
 
 

@@ -119,11 +119,16 @@ class OpenAIProvider:
                 return research, sources
 
     async def generate_script(self, research):
-        word_range = "140–155" if self.settings.content_language == "ru-RU" else "155–180"
+        target_words = 153 if self.settings.content_language == "ru-RU" else 171
+        scene_words = target_words // 9
         script = await self.structured(
             Script,
             "Write an ORIGINAL short technology explainer from ONLY the supplied research facts. Do not add unsupported "
-            f"dates, names, statistics, origin stories or causal claims. Write {word_range} spoken words, 8–12 scenes. "
+            "dates, names, statistics, origin stories or causal claims. "
+            f"Write 9 scenes with about {scene_words} spoken words EACH, for about {target_words} words total. "
+            "The hard allowed range is 135–215 words in the combined spoken narration. "
+            "Count only scene narration; exclude title, caption, hashtags and visual queries. "
+            "Hook and payoff are part of the scene text and count once. "
             "Keep narration natural, concrete, engaging and non-repetitive. Hook is the very first sentence, 4–8 words, "
             "no generic introduction. End with a satisfying one-sentence payoff. 'narration' must EXACTLY equal scene "
             "narrations joined with spaces, begin with hook and end with payoff. Scene orders start at 1. "

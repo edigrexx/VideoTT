@@ -358,6 +358,57 @@ async def test_invalid_script_repaired_once_without_search_and_both_costs_record
         await provider.close()
 
 
+@pytest.mark.parametrize("words_per_scene", [10, 26])
+@pytest.mark.parametrize("outcome", ["second", "third", "never"])
+async def test_length_repair_uses_measured_feedback_and_stops_after_two_repairs(
+    sample,
+    words_per_scene,
+    outcome,
+):
+    research, _, valid = sample
+    invalid = valid.model_dump()
+    for scene in invalid["scenes"]:
+        scene["narration"] = " ".join(["private-draft-text"] * words_per_scene)
+    invalid.update(
+        narration=" ".join(scene["narration"] for scene in invalid["scenes"]),
+        hook="private-draft-text",
+        payoff="private-draft-text",
+    )
+    seen = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        seen.append(body)
+        accepted_at = {"second": 2, "third": 3, "never": 4}[outcome]
+        result = valid.model_dump() if len(seen) == accepted_at else invalid
+        return httpx.Response(200, json=completion(json.dumps(result)))
+
+    provider = await provider_for(handler)
+    try:
+        if outcome == "never":
+            with pytest.raises(NeedsReview) as exc:
+                await provider.structured(Script, "Write", research.model_dump())
+            assert f"got {words_per_scene * 9}" in str(exc.value)
+            assert "after two repair attempts" in str(exc.value)
+            assert "private-draft-text" not in str(exc.value)
+        else:
+            assert await provider.structured(Script, "Write", research.model_dump()) == valid
+        assert len(seen) == (2 if outcome == "second" else 3)
+        for body in seen[1:]:
+            assert "tools" not in body
+            assert len(body["messages"]) == 4
+            assert body["messages"][:2] == seen[0]["messages"]
+            feedback = body["messages"][-1]["content"]
+            assert f"Measured narration: {words_per_scene * 9} words" in feedback
+            assert "Target 153 total spoken words" in feedback
+            assert "[17, 17, 17, 17, 17, 17, 17, 17, 17]" in feedback
+            assert ("add about 63" if words_per_scene == 10 else "remove about 81") in feedback
+            assert "private-draft-text" not in feedback
+        assert provider.usage_summary()["reported_cost_usd"] == pytest.approx(0.012 * len(seen))
+    finally:
+        await provider.close()
+
+
 @pytest.mark.parametrize("failure", ["http", "refusal", "incomplete"])
 async def test_script_provider_failures_do_not_trigger_repair(failure):
     seen = []
