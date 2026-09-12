@@ -5,7 +5,7 @@ import pytest
 
 from app.config import Settings
 from app.errors import NeedsReview, PipelineError
-from app.schemas import Evaluation, ResearchExtraction, ResearchResult, Script
+from app.schemas import Evaluation, ResearchExtraction, ResearchResult, Script, ScriptDraft
 from app.services.openrouter import OpenRouterProvider, response_schema, safe_error_detail
 from app.services.output import write_output
 from app.services.preflight import check_providers
@@ -66,6 +66,15 @@ def extraction_payload(research):
             for fact in research.facts
         ],
     }
+
+
+def draft_payload(script):
+    data = script.model_dump(exclude={"narration"})
+    for scene in data["scenes"]:
+        scene.pop("order")
+    data["scenes"][0]["narration"] = data["scenes"][0]["narration"].removeprefix(script.hook).strip()
+    data["scenes"][-1]["narration"] = data["scenes"][-1]["narration"].removesuffix(script.payoff).strip()
+    return data
 
 
 async def test_openrouter_structured_and_usage(tmp_path):
@@ -315,30 +324,80 @@ async def test_bad_answers_never_advance_and_billed_usage_is_kept(variant, code,
 
 async def test_script_semantic_validation_is_preserved(sample):
     _, _, script = sample
-    payload = script.model_dump()
-    payload["narration"] = "Inconsistent narration"
+    payload = draft_payload(script)
+    payload["hook"] = " ".join(["слово"] * 11)
     provider = await provider_for(lambda request: httpx.Response(200, json=completion(json.dumps(payload))))
     try:
         with pytest.raises(NeedsReview) as exc:
             await provider.structured(Script, "Write", {})
         assert exc.value.code == "LLM_SCHEMA"
-        assert "Script: $: Narration must equal concatenated scene narration" in str(exc.value)
-        assert "after one repair attempt" in str(exc.value)
-        assert len(provider.usage_records) == 2
+        assert "Script: hook: Opening hook must contain at most 10 words; got 11" in str(exc.value)
+        assert "after two repair attempts" in str(exc.value)
+        assert len(provider.usage_records) == 3
+    finally:
+        await provider.close()
+
+
+async def test_draft_is_assembled_into_existing_script_without_duplicate_fields(sample):
+    research, _, script = sample
+    wire_draft = draft_payload(script)
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=completion(json.dumps(wire_draft)))
+
+    provider = await provider_for(handler)
+    try:
+        assert await provider.structured(Script, "Write", research.model_dump()) == script
+        assert len(seen) == 1
+        schema = seen[0]["response_format"]["json_schema"]
+        assert schema["name"] == "ScriptDraft"
+        assert "narration" not in schema["schema"]["properties"]
+        assert "order" not in schema["schema"]["properties"]["scenes"]["items"]["properties"]
+        assert ScriptDraft.model_validate(wire_draft).model_dump() == wire_draft
+    finally:
+        await provider.close()
+
+
+async def test_hook_and_narration_errors_are_repaired_together(sample):
+    research, _, valid = sample
+    bad = draft_payload(valid)
+    bad["hook"] = " ".join(["слово"] * 14)
+    bad["payoff"] = "Конец."
+    for scene in bad["scenes"]:
+        scene["narration"] = "Коротко."
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        result = bad if len(seen) == 1 else draft_payload(valid)
+        return httpx.Response(200, json=completion(json.dumps(result)))
+
+    provider = await provider_for(handler)
+    try:
+        assert await provider.structured(Script, "Write", research.model_dump()) == valid
+        assert len(seen) == 2
+        feedback = seen[1]["messages"][-1]["content"]
+        assert "hook: Opening hook must contain at most 10 words; got 14" in feedback
+        assert "narration: Narration must contain 135–215 words; got 24" in feedback
+        assert "Measured hook: 14 words" in feedback
+        assert "Measured narration: 24 words" in feedback
+        assert "Коротко" not in feedback
     finally:
         await provider.close()
 
 
 async def test_invalid_script_repaired_once_without_search_and_both_costs_recorded(sample):
     research, _, script = sample
-    invalid = script.model_dump()
-    invalid["narration"] = "Inconsistent draft"
+    invalid = draft_payload(script)
+    invalid["hook"] = " ".join(["слово"] * 11)
     seen = []
 
     def handler(request):
         body = json.loads(request.content)
         seen.append(body)
-        result = invalid if len(seen) == 1 else script.model_dump()
+        result = invalid if len(seen) == 1 else draft_payload(script)
         return httpx.Response(200, json=completion(json.dumps(result)))
 
     provider = await provider_for(handler)
@@ -349,7 +408,8 @@ async def test_invalid_script_repaired_once_without_search_and_both_costs_record
         assert all("tools" not in body and "max_tool_calls" not in body for body in seen)
         assert seen[1]["messages"][:2] == seen[0]["messages"]
         assert json.loads(seen[1]["messages"][2]["content"]) == invalid
-        assert "Narration must equal concatenated scene narration" in seen[1]["messages"][3]["content"]
+        assert "Opening hook must contain at most 10 words; got 11" in seen[1]["messages"][3]["content"]
+        assert "Measured hook: 11 words" in seen[1]["messages"][3]["content"]
         assert "maxLength" in seen[0]["messages"][0]["content"]
         assert "maxLength" not in json.dumps(seen[0]["response_format"])
         assert [record["stage"] for record in provider.usage_records] == ["Script", "Script_repair"]
@@ -366,11 +426,10 @@ async def test_length_repair_uses_measured_feedback_and_stops_after_two_repairs(
     outcome,
 ):
     research, _, valid = sample
-    invalid = valid.model_dump()
+    invalid = draft_payload(valid)
     for scene in invalid["scenes"]:
         scene["narration"] = " ".join(["private-draft-text"] * words_per_scene)
     invalid.update(
-        narration=" ".join(scene["narration"] for scene in invalid["scenes"]),
         hook="private-draft-text",
         payoff="private-draft-text",
     )
@@ -380,7 +439,7 @@ async def test_length_repair_uses_measured_feedback_and_stops_after_two_repairs(
         body = json.loads(request.content)
         seen.append(body)
         accepted_at = {"second": 2, "third": 3, "never": 4}[outcome]
-        result = valid.model_dump() if len(seen) == accepted_at else invalid
+        result = draft_payload(valid) if len(seen) == accepted_at else invalid
         return httpx.Response(200, json=completion(json.dumps(result)))
 
     provider = await provider_for(handler)
@@ -388,7 +447,7 @@ async def test_length_repair_uses_measured_feedback_and_stops_after_two_repairs(
         if outcome == "never":
             with pytest.raises(NeedsReview) as exc:
                 await provider.structured(Script, "Write", research.model_dump())
-            assert f"got {words_per_scene * 9}" in str(exc.value)
+            assert f"got {words_per_scene * 9 + 2}" in str(exc.value)
             assert "after two repair attempts" in str(exc.value)
             assert "private-draft-text" not in str(exc.value)
         else:
@@ -399,10 +458,11 @@ async def test_length_repair_uses_measured_feedback_and_stops_after_two_repairs(
             assert len(body["messages"]) == 4
             assert body["messages"][:2] == seen[0]["messages"]
             feedback = body["messages"][-1]["content"]
-            assert f"Measured narration: {words_per_scene * 9} words" in feedback
+            assert f"Measured narration: {words_per_scene * 9 + 2} words" in feedback
             assert "Target 153 total spoken words" in feedback
             assert "[17, 17, 17, 17, 17, 17, 17, 17, 17]" in feedback
-            assert ("add about 63" if words_per_scene == 10 else "remove about 81") in feedback
+            assert ("add about 61" if words_per_scene == 10 else "remove about 83") in feedback
+            assert "[11, 17, 17, 17, 17, 17, 17, 17, 7]" in feedback
             assert "private-draft-text" not in feedback
         assert provider.usage_summary()["reported_cost_usd"] == pytest.approx(0.012 * len(seen))
     finally:
@@ -507,7 +567,7 @@ async def test_usage_reaches_downloadable_metadata(sample, tmp_path):
         await provider.close()
 
 
-@pytest.mark.parametrize("schema", [ResearchResult, ResearchExtraction, Script, Evaluation])
+@pytest.mark.parametrize("schema", [ResearchResult, ResearchExtraction, Script, ScriptDraft, Evaluation])
 def test_gemini_schema_keeps_structure_without_complex_decoder_limits(schema):
     original = schema.model_json_schema()
     simple = response_schema(schema, "google/gemini-2.5-flash")

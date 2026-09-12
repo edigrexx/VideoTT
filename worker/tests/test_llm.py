@@ -6,11 +6,12 @@ from openai import AsyncOpenAI
 
 from app.config import Settings
 from app.errors import NeedsReview
-from app.schemas import Evaluation
+from app.schemas import Evaluation, Script, ScriptDraft
 from app.services.llm import OpenAIProvider
 
 
-async def test_openai_structured_request_and_parsing():
+@pytest.mark.parametrize("schema", [Evaluation, Script])
+async def test_openai_structured_request_and_parsing(sample, schema):
     seen = []
     output = Evaluation(
         supported=True,
@@ -19,6 +20,15 @@ async def test_openai_structured_request_and_parsing():
         unsupported_claims=[],
         explanation="Supported by supplied excerpts",
     )
+    expected = output
+    if schema is Script:
+        expected = sample[2]
+        draft = expected.model_dump(exclude={"narration"})
+        for scene in draft["scenes"]:
+            scene.pop("order")
+        draft["scenes"][0]["narration"] = draft["scenes"][0]["narration"].removeprefix(expected.hook).strip()
+        draft["scenes"][-1]["narration"] = draft["scenes"][-1]["narration"].removesuffix(expected.payoff).strip()
+        output = ScriptDraft.model_validate(draft)
 
     def handler(request):
         seen.append(json.loads(request.content))
@@ -52,13 +62,15 @@ async def test_openai_structured_request_and_parsing():
         api_key="test-key", http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
     )
     try:
-        result = await provider.structured(Evaluation, "Evaluate supplied evidence only.", {"text": "test"})
-        assert result == output
+        result = await provider.structured(schema, "Use supplied evidence only.", {"text": "test"})
+        assert result == expected
         assert seen[0]["model"] == "test-model-from-env"
         assert seen[0]["text"]["format"]["type"] == "json_schema"
         assert seen[0]["text"]["format"]["strict"] is True
         assert seen[0]["store"] is False
         assert "in Russian" in seen[0]["input"][0]["content"]
+        if schema is Script:
+            assert "narration" not in seen[0]["text"]["format"]["schema"]["properties"]
     finally:
         await provider.close()
 

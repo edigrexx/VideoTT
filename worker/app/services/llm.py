@@ -6,7 +6,7 @@ from openai import AsyncOpenAI
 from pydantic import ValidationError
 
 from app.errors import NeedsReview, PipelineError
-from app.schemas import Evaluation, ResearchExtraction, ResearchResult, Script
+from app.schemas import Evaluation, ResearchExtraction, ResearchResult, Script, ScriptDraft
 from app.services.research import retrieve_sources, validate_fact_evidence
 from app.services.validation import validation_detail
 
@@ -32,6 +32,8 @@ class OpenAIProvider:
         await self.client.close()
 
     async def structured(self, schema, instruction, payload):
+        wire_schema = ScriptDraft if schema is Script else schema
+        validation_schema = wire_schema
         try:
             response = await self.client.responses.parse(
                 model=self.settings.llm_model,
@@ -45,13 +47,15 @@ class OpenAIProvider:
                     },
                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
                 ],
-                text_format=schema,
+                text_format=wire_schema,
             )
             if response.output_parsed is None:
                 raise NeedsReview("LLM_REFUSAL", "Model did not return valid structured content")
-            return schema.model_validate(response.output_parsed)
+            parsed = wire_schema.model_validate(response.output_parsed)
+            validation_schema = schema
+            return parsed.to_script() if schema is Script else parsed
         except ValidationError as exc:
-            raise NeedsReview("LLM_SCHEMA", validation_detail(schema, exc)) from None
+            raise NeedsReview("LLM_SCHEMA", validation_detail(validation_schema, exc)) from None
 
     async def discover_sources(self, topic):
         result = await self.client.responses.create(
@@ -125,14 +129,18 @@ class OpenAIProvider:
             Script,
             "Write an ORIGINAL short technology explainer from ONLY the supplied research facts. Do not add unsupported "
             "dates, names, statistics, origin stories or causal claims. "
-            f"Write 9 scenes with about {scene_words} spoken words EACH, for about {target_words} words total. "
+            f"Write 9 scenes for about {target_words} spoken words total, including the separate hook and payoff. "
+            f"Middle scene bodies should have about {scene_words} words each. The first body should have about "
+            f"{scene_words - 6} words and the last about {scene_words - 10} words, leaving room for hook and payoff. "
             "The hard allowed range is 135–215 words in the combined spoken narration. "
-            "Count only scene narration; exclude title, caption, hashtags and visual queries. "
-            "Hook and payoff are part of the scene text and count once. "
+            "Count scene bodies plus hook plus payoff ONCE; exclude title, caption, hashtags and visual queries. "
             "Keep narration natural, concrete, engaging and non-repetitive. Hook is the very first sentence, 4–8 words, "
-            "no generic introduction. End with a satisfying one-sentence payoff. 'narration' must EXACTLY equal scene "
-            "narrations joined with spaces, begin with hook and end with payoff. Scene orders start at 1. "
-            "Each scene lists all research fact_ids it uses. Use simple realistic Pexels stock search queries, "
+            "no generic introduction. End with a satisfying one-sentence payoff of about 8–12 words. "
+            "Return hook and payoff separately; scene narrations contain ONLY the body, without repeating either. "
+            "The application prepends hook to the first scene, appends payoff to the last, numbers scenes and "
+            "joins the narration. Do not return a full narration field or scene orders. "
+            "Each scene lists all research fact_ids it uses, including hook facts in the first scene and payoff "
+            "facts in the last. Use simple realistic Pexels stock search queries, "
             "not precise historical footage we cannot license. Estimated duration 60–90 seconds. "
             "Caption and 3–6 hashtags must also use supported facts. Return hashtags without #. "
             "Title, hook, payoff and scene narration must be consistent. Do not mention the research process.",

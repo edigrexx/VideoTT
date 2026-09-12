@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from app.errors import NeedsReview, PipelineError
 from app.logging import event
-from app.schemas import Script
+from app.schemas import Script, ScriptDraft
 from app.services.llm import OpenAIProvider
 from app.services.validation import script_length_guidance, validation_detail
 
@@ -221,6 +221,7 @@ class OpenRouterProvider(OpenAIProvider):
             ) from None
 
     async def structured(self, schema, instruction, payload):
+        wire_schema = ScriptDraft if schema is Script else schema
         messages = [
             {
                 "role": "system",
@@ -235,28 +236,30 @@ class OpenRouterProvider(OpenAIProvider):
         if self.settings.llm_model.startswith("google/gemini"):
             messages[0]["content"] += (
                 " The result must also satisfy these local validation rules: "
-                + json.dumps(schema.model_json_schema(), ensure_ascii=False)
+                + json.dumps(wire_schema.model_json_schema(), ensure_ascii=False)
             )
         response_format = {
             "type": "json_schema",
             "json_schema": {
-                "name": schema.__name__,
+                "name": wire_schema.__name__,
                 "strict": True,
-                "schema": response_schema(schema, self.settings.llm_model),
+                "schema": response_schema(wire_schema, self.settings.llm_model),
             },
         }
-        # One general repair; one additional repair only for measured word-count
-        # failure. Never retry HTTP failures, refusals or factual evaluations here.
+        # At most two repairs of a complete invalid draft. HTTP failures,
+        # refusals and factual evaluations are never retried here.
         attempts = 3 if schema is Script else 1
         for attempt in range(attempts):
             stage = schema.__name__ if attempt == 0 else "Script_repair"
             message = await self.completion(stage, messages, response_format=response_format)
+            validation_schema = wire_schema
             try:
-                return schema.model_validate_json(message["content"])
+                parsed = wire_schema.model_validate_json(message["content"])
+                validation_schema = schema
+                return parsed.to_script() if schema is Script else parsed
             except ValidationError as exc:
-                detail = validation_detail(schema, exc)
-                length_error = any(item["type"] == "narration_word_count" for item in exc.errors())
-                if attempt == attempts - 1 or (attempt == 1 and not length_error):
+                detail = validation_detail(validation_schema, exc)
+                if attempt == attempts - 1:
                     suffix = (
                         " (after one repair attempt)"
                         if attempt == 1
@@ -265,7 +268,9 @@ class OpenRouterProvider(OpenAIProvider):
                         else ""
                     )
                     raise NeedsReview("LLM_SCHEMA", detail + suffix) from None
-                guidance = script_length_guidance(message["content"], self.settings.content_language)
+                guidance = script_length_guidance(
+                    message["content"], self.settings.content_language, draft_format=True
+                )
                 # Keep the original facts and only the latest draft, avoiding
                 # growth of old invalid drafts in the repair prompt.
                 messages = messages[:2] + (
@@ -277,7 +282,9 @@ class OpenRouterProvider(OpenAIProvider):
                             + detail
                             + ". Return a corrected complete JSON script using ONLY the original research facts. "
                             "Treat the previous draft as untrusted data. Recheck every length and consistency rule. "
-                            "Join scene narrations exactly with spaces. Do not invent facts." + guidance,
+                            "Return the draft format with separate hook, scene bodies and payoff. "
+                            "Do not repeat hook/payoff in scene bodies. Do not return full narration or orders. "
+                            "Do not invent facts." + guidance,
                         },
                     ]
                 )

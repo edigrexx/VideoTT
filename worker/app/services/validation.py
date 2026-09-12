@@ -2,17 +2,33 @@
 
 import json
 
-from app.schemas import narration_word_count
+from pydantic import ValidationError
+
+from app.schemas import ScriptDraft, narration_word_count
 
 
-def script_length_guidance(content, language):
+def script_length_guidance(content, language, *, draft_format=False):
     """Give the writer measured counts, not another request to count its own words."""
     try:
         draft = json.loads(content)
     except (ValueError, TypeError):
         return ""
-    if not isinstance(draft, dict) or not isinstance(draft.get("narration"), str):
+    if not isinstance(draft, dict):
         return ""
+    hook_guidance = ""
+    if isinstance(draft.get("hook"), str):
+        hook_guidance = (
+            f" Measured hook: {len(draft['hook'].split())} words; maximum 10. Aim for 6 words in the hook. "
+            "The hook is one short sentence, not the entire first scene. Move supporting detail into "
+            "the first scene body, preserving the supported meaning."
+        )
+    if draft_format:
+        try:
+            draft = ScriptDraft.model_validate(draft).assembled_data()
+        except ValidationError:
+            return hook_guidance
+    if not isinstance(draft.get("narration"), str):
+        return hook_guidance
     scenes = draft.get("scenes")
     if not isinstance(scenes, list) or not 8 <= len(scenes) <= 16:
         return ""
@@ -23,6 +39,16 @@ def script_length_guidance(content, language):
     counts = [narration_word_count(scene["narration"]) for scene in scenes]
     base, remainder = divmod(target, len(scenes))
     budgets = [base + (index < remainder) for index in range(len(scenes))]
+    assembly_guidance = "Then join the scenes into narration."
+    if draft_format:
+        body_budgets = budgets.copy()
+        body_budgets[0] = max(1, body_budgets[0] - 6)
+        body_budgets[-1] = max(1, body_budgets[-1] - 10)
+        assembly_guidance = (
+            f"For the returned scene BODY fields only, aim for {body_budgets} words; these exclude "
+            "the separate hook (about 6 words) and payoff (about 10 words). The application adds those "
+            "once and joins everything. Do not repeat hook/payoff in bodies or return full narration or orders."
+        )
     change = f"add about {target - total}" if total < target else f"remove about {total - target}"
     return (
         f" Measured narration: {total} words. Scene word counts in order: {counts}; sum {sum(counts)}. "
@@ -32,7 +58,7 @@ def script_length_guidance(content, language):
         "not title, caption, hashtags, visual queries or the duplicate full narration field. "
         "For short text, explain the supplied facts in clearer complete sentences or use simple viewer "
         "instructions; do not pad with repetition or invent details. For long text, remove repetition and "
-        "shorten phrasing without changing the supported claims. Then join the scenes into narration."
+        "shorten phrasing without changing the supported claims. " + assembly_guidance + hook_guidance
     )
 
 
@@ -84,6 +110,10 @@ def validation_detail(schema, error):
             actual = (item.get("ctx") or {}).get("actual")
             if type(actual) is int:
                 message = f"Narration must contain 135–215 words; got {actual}"
+        if item["type"] == "hook_word_count":
+            actual = (item.get("ctx") or {}).get("actual")
+            if type(actual) is int:
+                message = f"Opening hook must contain at most 10 words; got {actual}"
         if item["type"] == "value_error":
             known = item["msg"].removeprefix("Value error, ")
             if known in consistency_messages:

@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 Text = Annotated[str, Field(min_length=1, max_length=12000)]
@@ -115,6 +115,30 @@ class Script(StrictModel):
         min_length=3, max_length=6
     )
 
+    @field_validator("hook")
+    @classmethod
+    def hook_length(cls, value):
+        words = len(value.split())
+        if words > 10:
+            raise PydanticCustomError(
+                "hook_word_count",
+                "Opening hook must contain at most 10 words; got {actual}",
+                {"actual": words},
+            )
+        return value
+
+    @field_validator("narration")
+    @classmethod
+    def narration_length(cls, value):
+        words = narration_word_count(value)
+        if not 135 <= words <= 215:
+            raise PydanticCustomError(
+                "narration_word_count",
+                "Narration must contain 135–215 words; got {actual}",
+                {"actual": words},
+            )
+        return value
+
     @model_validator(mode="after")
     def consistency(self):
         def norm(s):
@@ -126,16 +150,45 @@ class Script(StrictModel):
             raise ValueError("Scenes must be consecutive and ordered")
         if not self.narration.startswith(self.hook) or not self.narration.endswith(self.payoff):
             raise ValueError("Narration must start with hook and end with payoff")
-        if len(self.hook.split()) > 10:
-            raise ValueError("Keep the opening hook to 10 words or fewer")
-        words = narration_word_count(self.narration)
-        if not 135 <= words <= 215:
-            raise PydanticCustomError(
-                "narration_word_count",
-                "Narration must contain 135–215 words; got {actual}",
-                {"actual": words},
-            )
         return self
+
+
+class SceneDraft(StrictModel):
+    narration: Text = Field(description="Scene body ONLY. Do not repeat the separate hook or payoff.")
+    visual_query: Annotated[str, Field(min_length=3, max_length=150)]
+    duration_hint: float = Field(gt=0, le=20)
+    fact_ids: list[Text] = Field(min_length=1, max_length=16)
+
+
+class ScriptDraft(StrictModel):
+    """Generate each spoken fragment once; derive the existing public Script format."""
+
+    title: Annotated[str, Field(min_length=1, max_length=160)]
+    hook: Annotated[str, Field(min_length=1, max_length=200)] = Field(
+        description="A separate opening sentence, 4–8 words. NOT the full first scene."
+    )
+    payoff: Annotated[str, Field(min_length=1, max_length=300)] = Field(
+        description="A separate final sentence, about 8–12 words. Do not repeat it in scene bodies."
+    )
+    estimated_duration: float = Field(ge=60, le=90)
+    scenes: list[SceneDraft] = Field(min_length=8, max_length=16)
+    caption: Annotated[str, Field(min_length=1, max_length=1500)]
+    hashtags: list[Annotated[str, Field(pattern=r"^[A-Za-zА-Яа-яЁё0-9_]{1,40}$")]] = Field(
+        min_length=3, max_length=6
+    )
+
+    def assembled_data(self):
+        data = self.model_dump()
+        scenes = data["scenes"]
+        for order, scene in enumerate(scenes, start=1):
+            scene["order"] = order
+        scenes[0]["narration"] = self.hook + " " + scenes[0]["narration"]
+        scenes[-1]["narration"] += " " + self.payoff
+        data["narration"] = " ".join(scene["narration"] for scene in scenes)
+        return data
+
+    def to_script(self):
+        return Script.model_validate(self.assembled_data())
 
 
 class Evaluation(StrictModel):
