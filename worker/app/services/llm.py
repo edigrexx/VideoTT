@@ -132,7 +132,7 @@ class OpenAIProvider:
             f"Write 9 scenes for about {target_words} spoken words total, including the separate hook and payoff. "
             f"Middle scene bodies should have about {scene_words} words each. The first body should have about "
             f"{scene_words - 6} words and the last about {scene_words - 10} words, leaving room for hook and payoff. "
-            "The hard allowed range is 135–215 words in the combined spoken narration. "
+            "The hard allowed range is 120–215 words in the combined spoken narration. "
             "Count scene bodies plus hook plus payoff ONCE; exclude title, caption, hashtags and visual queries. "
             "Keep narration natural, concrete, engaging and non-repetitive. Hook is the very first sentence, 4–8 words, "
             "no generic introduction. End with a satisfying one-sentence payoff of about 8–12 words. "
