@@ -131,10 +131,10 @@ class Script(StrictModel):
     @classmethod
     def narration_length(cls, value):
         words = narration_word_count(value)
-        if not 135 <= words <= 215:
+        if not 120 <= words <= 215:
             raise PydanticCustomError(
                 "narration_word_count",
-                "Narration must contain 135–215 words; got {actual}",
+                "Narration must contain 120–215 words; got {actual}",
                 {"actual": words},
             )
         return value
